@@ -33,7 +33,14 @@ abstract class PhrCcdaSectionReader
     abstract public function sectionTemplates(): array;
 
     /**
-     * Whether a section with no recognized template is this kind, by its title.
+     * The section's LOINC code, which names it when it carries no template
+     * (PhrCcdaSectionCatalog).
+     */
+    abstract public function sectionCode(): string;
+
+    /**
+     * Whether a section with no recognized template or code is this kind, by
+     * its title.
      */
     abstract public function matchesTitle(string $title): bool;
 

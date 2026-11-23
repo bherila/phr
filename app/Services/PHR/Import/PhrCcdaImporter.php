@@ -6,7 +6,6 @@ use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use DOMDocument;
 use DOMElement;
-use DOMNode;
 use DOMXPath;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -24,6 +23,7 @@ class PhrCcdaImporter
         private PhrCcdaLegacyLabRows $legacyLabRows,
         private PhrCcdaLegacyRows $legacyRows,
         private PhrRecordAttributeMapper $attributeMapper,
+        private PhrCcdaMisroutedMedications $misroutedMedications,
     ) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
@@ -38,13 +38,71 @@ class PhrCcdaImporter
     /**
      * With `$document`, the stored document the XML was read from, every row
      * written is linked to it (see PhrStructuredDataImporter::fromDocument()).
+     *
+     * Medication rows an earlier import of the same document made of its
+     * hospital medication lists are retracted afterwards
+     * (PhrCcdaMisroutedMedications). A caller importing several C-CDA documents
+     * from one stored document (a MyChart ZIP) passes `$retractMisrouted` false
+     * and calls retractMisroutedMedications() once with all of them, so one
+     * member's medication list keeps another member's hospital list from
+     * retracting a row both name.
      */
-    public function importXml(string $xml, PhrPatient $patient, int $actorUserId, ?PhrDocument $document = null): PhrImportResult
+    public function importXml(string $xml, PhrPatient $patient, int $actorUserId, ?PhrDocument $document = null, bool $retractMisrouted = true): PhrImportResult
     {
-        return $this->structuredImporter->fromDocument($document, self::RECORD_SOURCE, fn (): PhrImportResult => $this->readXml($xml, $patient, $actorUserId));
+        $xpath = $this->load($xml);
+
+        return $this->structuredImporter->fromDocument($document, self::RECORD_SOURCE, function () use ($xpath, $patient, $actorUserId, $document, $retractMisrouted): PhrImportResult {
+            $result = $this->readXml($xpath, $patient, $actorUserId);
+            if ($retractMisrouted) {
+                $result->merge($this->retractMisrouted([$xpath], $patient, $document));
+            }
+
+            return $result;
+        });
     }
 
-    private function readXml(string $xml, PhrPatient $patient, int $actorUserId): PhrImportResult
+    /**
+     * Retracts the medication rows earlier imports of these documents, all read
+     * from `$document` (or from no stored document), made of hospital medication
+     * lists, and restores those a document's own medication list names.
+     *
+     * @param  list<string>  $xmls
+     */
+    public function retractMisroutedMedications(array $xmls, PhrPatient $patient, ?PhrDocument $document = null): PhrImportResult
+    {
+        return $this->retractMisrouted(array_map($this->load(...), $xmls), $patient, $document);
+    }
+
+    /**
+     * @param  list<DOMXPath>  $documents
+     */
+    private function retractMisrouted(array $documents, PhrPatient $patient, ?PhrDocument $document): PhrImportResult
+    {
+        $former = [];
+        $current = [];
+        foreach ($documents as $xpath) {
+            $ids = $this->misroutedMedications->ids($xpath);
+            $former = [...$former, ...$ids['former']];
+            $current = [...$current, ...$ids['current']];
+        }
+
+        // A row with no source document may be one this document's earlier,
+        // unlinked import made; a row linked to another document is left to
+        // phr:ccda:retract-hospital-medications, which reads that document too.
+        // Before a row is retracted, the patient's other stored documents are
+        // read: one whose medication list names it keeps it.
+        $outcome = $this->misroutedMedications->apply(
+            (int) $patient->id,
+            array_values(array_diff($former, $current)),
+            array_values(array_unique($current)),
+            $document === null ? [null] : [(int) $document->id, null],
+            corroborated: fn (): array => $this->misroutedMedications->storedIds((int) $patient->id, $document === null ? null : (int) $document->id)['current'],
+        );
+
+        return new PhrImportResult(warnings: $outcome->warnings());
+    }
+
+    private function load(string $xml): DOMXPath
     {
         $document = new DOMDocument;
         $previous = libxml_use_internal_errors(true);
@@ -56,8 +114,12 @@ class PhrCcdaImporter
             throw new InvalidArgumentException('CCDA import expects a valid XML document.');
         }
 
-        $xpath = new DOMXPath($document);
-        $readers = $this->readers(new PhrCcdaXml($xpath));
+        return new DOMXPath($document);
+    }
+
+    private function readXml(DOMXPath $xpath, PhrPatient $patient, int $actorUserId): PhrImportResult
+    {
+        $catalog = new PhrCcdaSectionCatalog(new PhrCcdaXml($xpath));
         $result = new PhrImportResult;
 
         foreach ($xpath->query('//*[local-name()="section"]') ?: [] as $section) {
@@ -65,38 +127,24 @@ class PhrCcdaImporter
                 continue;
             }
 
-            $title = strtolower($this->sectionTitle($xpath, $section));
-            // A known template names the section's reader, whatever its title
-            // says: "Laboratory Procedures" is still a Procedures section.
-            $reader = $this->readerByTemplate($readers, $xpath, $section);
-            $results = $reader === null && $this->isResultsSection($title);
-            if ($results) {
-                // Structured Result Observations, when present, are the record;
-                // the narrative table is only their rendering.
-                $observations = (new PhrCcdaResultObservations($xpath))->observations($section);
-                $readable = array_values(array_filter($observations, static fn (array $observation): bool => $observation['record'] !== null));
-                if ($readable !== []) {
-                    // Never fewer results than the narrative table: an observation
-                    // nothing names is read from its own table row instead.
-                    $unnamedRows = array_values(array_filter(array_map(static fn (array $observation): ?array => $observation['record'] === null ? $observation['narrative_cells'] : null, $observations)));
-                    $result->merge(DB::transaction(function () use ($patient, $actorUserId, $readable, $unnamedRows): PhrImportResult {
-                        // Rows an earlier import made of these results under other
-                        // ids are moved to theirs first, so they update in place.
-                        $this->legacyLabRows->adopt($patient, self::IMPORT_SOURCE, $readable);
+            $route = $catalog->route($section);
+            if ($route->unread !== null) {
+                // A known section no reader reads (a hospital medication list, a
+                // procedure's findings, a reason for visit) is never read as
+                // another kind: its entries, or else its table rows, are skipped.
+                $entries = $xpath->query('./*[local-name()="entry"]', $section);
+                $result->addSkipped(($entries === false ? 0 : $entries->length) ?: count(PhrCcdaNarrativeRow::rows($xpath, $section)));
 
-                        $imported = $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_column($readable, 'record'), ['import_source' => self::IMPORT_SOURCE]);
-                        if ($unnamedRows !== []) {
-                            $imported->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $unnamedRows), ['import_source' => self::IMPORT_SOURCE]));
-                        }
-
-                        return $imported;
-                    }));
-
-                    continue;
-                }
+                continue;
             }
 
-            $reader ??= $results ? null : $this->readerByTitle($readers, $title);
+            if ($route->results) {
+                $result->merge($this->importResults($xpath, $section, $patient, $actorUserId));
+
+                continue;
+            }
+
+            $reader = $route->reader;
             if ($reader !== null) {
                 // A section's structured entries, when it has any, are the
                 // record; its narrative table is only their rendering.
@@ -108,13 +156,13 @@ class PhrCcdaImporter
                 }
             }
 
-            $rows = $this->tableRows($xpath, $section);
+            $rows = PhrCcdaNarrativeRow::rows($xpath, $section);
             if ($rows === []) {
                 continue;
             }
 
             $result->merge($reader === null
-                ? $this->importRows($patient, $actorUserId, $title, $rows)
+                ? new PhrImportResult(skipped: count($rows))
                 : $this->structuredImporter->importUnreviewed($patient, $actorUserId, $reader->jobType(), array_map($reader->narrativeRecord(...), $rows), $this->options()));
         }
 
@@ -122,58 +170,36 @@ class PhrCcdaImporter
     }
 
     /**
-     * The section readers, in the order a section's title is matched.
-     *
-     * @return list<PhrCcdaSectionReader>
+     * A Results section. Structured Result Observations, when present, are the
+     * record; the narrative table is only their rendering, read by position
+     * when no observation is readable.
      */
-    private function readers(PhrCcdaXml $xml): array
+    private function importResults(DOMXPath $xpath, DOMElement $section, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
-        return [
-            new PhrCcdaVitalSignObservations($xml),
-            new PhrCcdaMedicationActivities($xml),
-            new PhrCcdaProblemObservations($xml),
-            new PhrCcdaProcedureActivities($xml),
-            new PhrCcdaImmunizationActivities($xml),
-            new PhrCcdaAllergyObservations($xml),
-            new PhrCcdaEncounterActivities($xml),
-        ];
-    }
+        $observations = (new PhrCcdaResultObservations($xpath))->observations($section);
+        $readable = array_values(array_filter($observations, static fn (array $observation): bool => $observation['record'] !== null));
+        if ($readable === []) {
+            $rows = PhrCcdaNarrativeRow::rows($xpath, $section);
 
-    /**
-     * The reader a section's template names, if any.
-     *
-     * @param  list<PhrCcdaSectionReader>  $readers
-     */
-    private function readerByTemplate(array $readers, DOMXPath $xpath, DOMElement $section): ?PhrCcdaSectionReader
-    {
-        $templates = [];
-        foreach ($xpath->query('./*[local-name()="templateId"]/@root', $section) ?: [] as $root) {
-            $templates[] = trim((string) $root->nodeValue);
+            return $rows === [] ? new PhrImportResult : $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $rows), $this->options());
         }
-        foreach ($readers as $reader) {
-            if (array_intersect($reader->sectionTemplates(), $templates) !== []) {
-                return $reader;
+
+        // Never fewer results than the narrative table: an observation
+        // nothing names is read from its own table row instead.
+        $unnamedRows = array_values(array_filter(array_map(static fn (array $observation): ?array => $observation['record'] === null ? $observation['narrative_cells'] : null, $observations)));
+
+        return DB::transaction(function () use ($patient, $actorUserId, $readable, $unnamedRows): PhrImportResult {
+            // Rows an earlier import made of these results under other
+            // ids are moved to theirs first, so they update in place.
+            $this->legacyLabRows->adopt($patient, self::IMPORT_SOURCE, $readable);
+
+            $imported = $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_column($readable, 'record'), $this->options());
+            if ($unnamedRows !== []) {
+                $imported->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $unnamedRows), $this->options()));
             }
-        }
 
-        return null;
-    }
-
-    /**
-     * The reader for a section without a known template, by its title, in the
-     * order the narrative-table reader has always matched titles.
-     *
-     * @param  list<PhrCcdaSectionReader>  $readers
-     */
-    private function readerByTitle(array $readers, string $title): ?PhrCcdaSectionReader
-    {
-        foreach ($readers as $reader) {
-            if ($reader->matchesTitle($title)) {
-                return $reader;
-            }
-        }
-
-        return null;
+            return $imported;
+        });
     }
 
     /**
@@ -225,18 +251,6 @@ class PhrCcdaImporter
     }
 
     /**
-     * @param  array<int, array<int, string>>  $rows
-     */
-    private function importRows(PhrPatient $patient, int $actorUserId, string $title, array $rows): PhrImportResult
-    {
-        if ($this->isResultsSection($title)) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $rows), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        return new PhrImportResult(skipped: count($rows));
-    }
-
-    /**
      * A lab row read from a narrative table row, by position.
      *
      * @param  array<int, string>  $row
@@ -254,39 +268,5 @@ class PhrCcdaImporter
             'abnormal_flag' => $row[5] ?? null,
             'external_id' => PhrCcdaNarrativeRow::labExternalId($row),
         ];
-    }
-
-    /** Vital signs are matched first, so a "vital signs results" title stays a vitals section. */
-    private function isResultsSection(string $title): bool
-    {
-        return ! str_contains($title, 'vital') && (str_contains($title, 'result') || str_contains($title, 'lab'));
-    }
-
-    private function sectionTitle(DOMXPath $xpath, DOMElement $section): string
-    {
-        $titleNodes = $xpath->query('./*[local-name()="title"]', $section);
-        $title = $titleNodes === false ? null : $titleNodes->item(0);
-
-        return $title instanceof DOMNode ? trim($title->textContent) : '';
-    }
-
-    /**
-     * @return array<int, array<int, string>>
-     */
-    private function tableRows(DOMXPath $xpath, DOMElement $section): array
-    {
-        $rows = [];
-        foreach ($xpath->query('.//*[local-name()="tbody"]/*[local-name()="tr"] | .//*[local-name()="table"]/*[local-name()="tr"]', $section) ?: [] as $tr) {
-            if (! $tr instanceof DOMElement) {
-                continue;
-            }
-
-            $cells = PhrCcdaNarrativeRow::cells($xpath, $tr);
-            if (PhrCcdaNarrativeRow::isData($cells)) {
-                $rows[] = $cells;
-            }
-        }
-
-        return $rows;
     }
 }

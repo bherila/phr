@@ -1,0 +1,384 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA discharge summary, built from the synthetic fixture of
+  issue #405. No patient data.
+
+  Only the Medications section (10160-0) is the patient's home medication list:
+    home-lisinopril      lisinopril 10 mg oral daily
+    home-metformin       metformin 500 mg oral twice daily
+    home-acetaminophen   acetaminophen 500 mg oral every 6 hours as needed for pain
+
+  Every other section is coded as a kind PHR does not read, and each title
+  shares a word with one it does, so a title match would misroute it:
+    Admission Medications (42346-7)    activities inside Admission Medication acts (4.36)
+    Medications Administered (29549-3) activities on their own, as administered (EVN)
+    Hospital Discharge Medications (10183-2)
+                                       activities inside Discharge Medication acts
+                                       (4.35); the lisinopril one reuses the home
+                                       list's activity id, as a resumed home
+                                       medication may
+    Procedure Findings (59776-5), Postprocedure Diagnosis (59769-0),
+    Planned Procedure (59772-4)        a narrative table each
+    Reason for Visit (29299-5)         a narrative table
+    Encounter Diagnosis (29308-4)      an Encounter Diagnosis act and its table
+
+  The Encounters section (46240-8) holds the one stay: inpatient, admitted
+  2026-02-09 14:20 at Example General Hospital, still in progress.
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.8" extension="2015-08-01"/>
+  <id root="2.25.4060" extension="discharge-summary"/>
+  <code code="18842-5" codeSystem="2.16.840.1.113883.6.1" displayName="Discharge summary"/>
+  <title>Synthetic Discharge Summary</title>
+  <effectiveTime value="20260212100000-0500"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.4060" extension="pat-example"/>
+      <patient>
+        <name><given>Pat</given><family>Example</family></name>
+        <birthTime value="19500615"/>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
+          <code code="10160-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Medications</title>
+          <text>
+            <table>
+              <thead><tr><th>Medication</th><th>Sig</th></tr></thead>
+              <tbody>
+                <tr><td>lisinopril 10 mg oral tablet</td><td>Take 10 mg by mouth daily</td></tr>
+                <tr><td>metformin 500 mg oral tablet</td><td>Take 500 mg by mouth twice daily</td></tr>
+                <tr><td>acetaminophen 500 mg oral tablet</td><td>Take 500 mg by mouth every 6 hours as needed for pain</td></tr>
+              </tbody>
+            </table>
+          </text>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4061" extension="home-lisinopril"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+              <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="24" unit="h"/></effectiveTime>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+              <doseQuantity value="10" unit="mg"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994061" codeSystem="2.16.840.1.113883.6.88" displayName="lisinopril 10 mg oral tablet"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4061" extension="home-metformin"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+              <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="12" unit="h"/></effectiveTime>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+              <doseQuantity value="500" unit="mg"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994062" codeSystem="2.16.840.1.113883.6.88" displayName="metformin 500 mg oral tablet"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4061" extension="home-acetaminophen"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+              <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="6" unit="h"/></effectiveTime>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+              <doseQuantity value="500" unit="mg"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994063" codeSystem="2.16.840.1.113883.6.88" displayName="acetaminophen 500 mg oral tablet"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+              <entryRelationship typeCode="RSON">
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.19" extension="2014-06-09"/>
+                  <code code="75321-0" codeSystem="2.16.840.1.113883.6.1"/>
+                  <value xsi:type="CD" code="9994064" codeSystem="2.16.840.1.113883.6.96" displayName="pain"/>
+                </observation>
+              </entryRelationship>
+            </substanceAdministration>
+          </entry>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.44" extension="2015-08-01"/>
+          <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Admission Medications</title>
+          <text><paragraph>Medications taken before admission.</paragraph></text>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.36" extension="2014-06-09"/>
+              <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="active"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4062" extension="admit-lisinopril"/>
+                  <statusCode code="active"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994061" codeSystem="2.16.840.1.113883.6.88" displayName="lisinopril 10 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.36" extension="2014-06-09"/>
+              <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="active"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4062" extension="admit-metformin"/>
+                  <statusCode code="active"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994062" codeSystem="2.16.840.1.113883.6.88" displayName="metformin 500 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.36" extension="2014-06-09"/>
+              <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="active"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4062" extension="admit-acetaminophen"/>
+                  <statusCode code="active"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994063" codeSystem="2.16.840.1.113883.6.88" displayName="acetaminophen 500 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.38" extension="2014-06-09"/>
+          <code code="29549-3" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Medications Administered</title>
+          <text><paragraph>Medications given during the stay.</paragraph></text>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4063" extension="given-ceftriaxone"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="24" unit="h"/></effectiveTime>
+              <routeCode code="C38276" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="intravenous"/>
+              <doseQuantity value="1" unit="g"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994065" codeSystem="2.16.840.1.113883.6.88" displayName="ceftriaxone 1 g injection"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4063" extension="given-potassium"/>
+              <statusCode code="completed"/>
+              <effectiveTime xsi:type="IVL_TS" value="20260210"/>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+              <doseQuantity value="20" unit="meq"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994066" codeSystem="2.16.840.1.113883.6.88" displayName="potassium chloride 20 mEq oral tablet"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4063" extension="given-insulin"/>
+              <text>Sliding scale with meals</text>
+              <statusCode code="active"/>
+              <routeCode code="C38299" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="subcutaneous"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994067" codeSystem="2.16.840.1.113883.6.88" displayName="insulin lispro injection"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4063" extension="given-saline"/>
+              <statusCode code="active"/>
+              <routeCode code="C38276" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="intravenous"/>
+              <rateQuantity value="75" unit="mL/h"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994068" codeSystem="2.16.840.1.113883.6.88" displayName="sodium chloride 0.9% injection"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.11.1" extension="2015-08-01"/>
+          <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Hospital Discharge Medications</title>
+          <text><paragraph>Medications to take after discharge.</paragraph></text>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.35" extension="2016-03-01"/>
+              <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="completed"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="INT">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4061" extension="home-lisinopril"/>
+                  <statusCode code="active"/>
+                  <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+                  <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="24" unit="h"/></effectiveTime>
+                  <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+                  <doseQuantity value="10" unit="mg"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994061" codeSystem="2.16.840.1.113883.6.88" displayName="lisinopril 10 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.35" extension="2016-03-01"/>
+              <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="completed"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="INT">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4064" extension="discharge-metformin"/>
+                  <statusCode code="active"/>
+                  <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="12" unit="h"/></effectiveTime>
+                  <doseQuantity value="500" unit="mg"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994062" codeSystem="2.16.840.1.113883.6.88" displayName="metformin 500 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.35" extension="2016-03-01"/>
+              <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="completed"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="INT">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4064" extension="discharge-cefpodoxime"/>
+                  <statusCode code="active"/>
+                  <effectiveTime xsi:type="IVL_TS"><low value="20260212"/><high value="20260217"/></effectiveTime>
+                  <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="12" unit="h"/></effectiveTime>
+                  <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+                  <doseQuantity value="200" unit="mg"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994069" codeSystem="2.16.840.1.113883.6.88" displayName="cefpodoxime 200 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.28"/>
+          <code code="59776-5" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Procedure Findings</title>
+          <text><table><tbody><tr><td>Right lower lobe consolidation on chest radiograph</td><td>02/09/2026</td><td/></tr></tbody></table></text>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.36"/>
+          <code code="59769-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Postprocedure Diagnosis</title>
+          <text><table><tbody><tr><td>Community-acquired pneumonia</td><td>02/09/2026</td><td/></tr></tbody></table></text>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.30" extension="2014-06-09"/>
+          <code code="59772-4" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Planned Procedure</title>
+          <text><table><tbody><tr><td>Follow-up chest radiograph</td><td>03/09/2026</td><td/></tr></tbody></table></text>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.12"/>
+          <code code="29299-5" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Reason for Visit</title>
+          <text><table><tbody><tr><td>02/09/2026</td><td>Shortness of breath and fever</td><td/><td/><td/></tr></tbody></table></text>
+        </section>
+      </component>
+      <component>
+        <section>
+          <code code="29308-4" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Encounter Diagnosis</title>
+          <text>
+            <table>
+              <tbody>
+                <tr><td>02/09/2026</td><td>Community-acquired pneumonia</td><td/><td/><td/></tr>
+                <tr><td>02/09/2026</td><td>Acute kidney injury</td><td/><td/><td/></tr>
+                <tr><td>02/09/2026</td><td>Hypokalemia</td><td/><td/><td/></tr>
+              </tbody>
+            </table>
+          </text>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.80" extension="2015-08-01"/>
+              <code code="29308-4" codeSystem="2.16.840.1.113883.6.1"/>
+              <entryRelationship typeCode="SUBJ">
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.4" extension="2015-08-01"/>
+                  <id root="2.25.4065" extension="dx-pneumonia"/>
+                  <code code="282291009" codeSystem="2.16.840.1.113883.6.96"/>
+                  <value xsi:type="CD" code="J18.9" codeSystem="2.16.840.1.113883.6.90" displayName="Community-acquired pneumonia"/>
+                </observation>
+              </entryRelationship>
+            </act>
+          </entry>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.22.1" extension="2015-08-01"/>
+          <code code="46240-8" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Encounters</title>
+          <text><paragraph>Inpatient stay at Example General Hospital.</paragraph></text>
+          <entry>
+            <encounter classCode="ENC" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.49" extension="2015-08-01"/>
+              <id root="2.25.4066" extension="stay"/>
+              <code code="IMP" codeSystem="2.16.840.1.113883.5.4" displayName="inpatient encounter"/>
+              <effectiveTime><low value="20260209142000-0500"/></effectiveTime>
+              <participant typeCode="LOC">
+                <participantRole classCode="SDLOC">
+                  <playingEntity classCode="PLC"><name>Example General Hospital</name></playingEntity>
+                </participantRole>
+              </participant>
+            </encounter>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>

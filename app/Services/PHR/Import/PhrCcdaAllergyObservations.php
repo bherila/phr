@@ -41,6 +41,11 @@ final class PhrCcdaAllergyObservations extends PhrCcdaSectionReader
         return ['2.16.840.1.113883.10.20.22.2.6', '2.16.840.1.113883.10.20.22.2.6.1'];
     }
 
+    public function sectionCode(): string
+    {
+        return '48765-2';
+    }
+
     public function matchesTitle(string $title): bool
     {
         return str_contains($title, 'allerg');

@@ -17,6 +17,29 @@ use DOMXPath;
 final class PhrCcdaNarrativeRow
 {
     /**
+     * The data rows of a section's narrative tables: those directly in a table
+     * or its tbody.
+     *
+     * @return list<list<string>>
+     */
+    public static function rows(DOMXPath $xpath, DOMElement $section): array
+    {
+        $rows = [];
+        foreach ($xpath->query('.//*[local-name()="tbody"]/*[local-name()="tr"] | .//*[local-name()="table"]/*[local-name()="tr"]', $section) ?: [] as $tr) {
+            if (! $tr instanceof DOMElement) {
+                continue;
+            }
+
+            $cells = self::cells($xpath, $tr);
+            if (self::isData($cells)) {
+                $rows[] = $cells;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
      * @return list<string>
      */
     public static function cells(DOMXPath $xpath, DOMElement $tr): array

@@ -73,6 +73,7 @@ class LocalDiskAssumptionsTest extends TestCase
         'app/Services/PHR/Import/EobDocumentImportService.php' => [1, self::FROM_LOCAL_OBJECT_FILE],
         'app/Services/PHR/Import/MeritainEobImporter.php' => [4, self::OPERATOR_PATH],
         'app/Services/PHR/Import/PhrCcdaImporter.php' => [2, self::OPERATOR_PATH],
+        'app/Services/PHR/Import/PhrCcdaMisroutedMedications.php' => [1, self::FROM_LOCAL_OBJECT_FILE],
         'app/Services/PHR/Import/PhrDocumentImporter.php' => [6, self::OPERATOR_PATH],
         'app/Services/PHR/Import/PhrFhirImporter.php' => [2, self::OPERATOR_PATH],
         'app/Services/PHR/Import/PhrMyChartZipImporter.php' => [5, self::FROM_LOCAL_OBJECT_FILE],

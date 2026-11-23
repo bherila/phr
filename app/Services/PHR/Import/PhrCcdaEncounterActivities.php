@@ -26,6 +26,11 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
         return ['2.16.840.1.113883.10.20.22.2.22', '2.16.840.1.113883.10.20.22.2.22.1'];
     }
 
+    public function sectionCode(): string
+    {
+        return '46240-8';
+    }
+
     public function matchesTitle(string $title): bool
     {
         return str_contains($title, 'encounter') || str_contains($title, 'visit');
