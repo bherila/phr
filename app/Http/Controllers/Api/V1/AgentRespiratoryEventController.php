@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\DeleteAgentRespiratoryEventsRequest;
 use App\Http\Requests\AgentApi\ListAgentRespiratoryEventsRequest;
 use App\Http\Requests\PHR\StoreRespiratoryEventBatchRequest;
 use App\Http\Resources\PHR\RespiratoryEventResource;
@@ -67,6 +68,22 @@ final class AgentRespiratoryEventController extends Controller
             'resource_type' => 'respiratory-event-batch',
             'patient_id' => $resolvedPatient->id,
             'results' => $this->events->ingestBatch($resolvedPatient->id, $events),
+        ]);
+    }
+
+    /**
+     * The browser's batch delete: events are removed outright, by the device's
+     * event UUIDs. A UUID already removed, or never stored, answers not_found, so a
+     * repeated batch changes nothing.
+     */
+    public function destroyBatch(DeleteAgentRespiratoryEventsRequest $request, int $patient): JsonResponse
+    {
+        $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user('api')?->id);
+
+        return response()->json([
+            'resource_type' => 'respiratory-event-batch',
+            'patient_id' => $resolvedPatient->id,
+            ...$this->events->deleteBatch($resolvedPatient->id, $request->uuids()),
         ]);
     }
 }

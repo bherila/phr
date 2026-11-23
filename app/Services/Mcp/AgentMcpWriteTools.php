@@ -134,6 +134,28 @@ final readonly class AgentMcpWriteTools
         return $this->api->clinicalRetract($patient_id, $resource_type, $record_id, $expected_version)->toArray();
     }
 
+    /** @return array<string, mixed> */
+    public function clinicalDelete(
+        string $resource_type,
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $record_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+    ): array {
+        return $this->api->clinicalDelete($patient_id, $resource_type, $record_id, $expected_version)->toArray();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function patientsUpdate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+        #[Schema(type: 'object')] array $data,
+    ): array {
+        return $this->api->patientUpdate($patient_id, $expected_version, $data)->toArray();
+    }
+
     /**
      * @param  list<string>  $tags
      * @return array<string, mixed>
@@ -334,6 +356,15 @@ final readonly class AgentMcpWriteTools
     }
 
     /** @return array<string, mixed> */
+    public function documentsDelete(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $document_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+    ): array {
+        return $this->api->documentDelete($patient_id, $document_id, $expected_version)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function documentsUploadFinalize(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(pattern: '^[0-9A-Za-z]{26}$')] string $upload_id,
@@ -501,6 +532,67 @@ final readonly class AgentMcpWriteTools
                 'details' => $this->requestArguments->value($context, 'details', $details),
             ]),
         )->toArray();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function healthLogsUpdate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $health_log_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+        #[Schema(type: 'object')] array $data,
+    ): array {
+        return $this->api->healthLogUpdate($patient_id, $health_log_id, $expected_version, $data)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function healthLogsDelete(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $health_log_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+    ): array {
+        return $this->api->healthLogDelete($patient_id, $health_log_id, $expected_version)->toArray();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function healthLogEntriesUpdate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $health_log_id,
+        #[Schema(minimum: 1)] int $entry_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+        #[Schema(type: 'object')] array $data,
+        RequestContext $context,
+    ): array {
+        // details keeps its wire shape ({} stays an object), as on append.
+        $wire = $this->requestArguments->value($context, 'data', $data);
+
+        return $this->api->healthLogEntryUpdate($patient_id, $health_log_id, $entry_id, $expected_version, is_array($wire) ? $wire : $data)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function healthLogEntriesDelete(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $health_log_id,
+        #[Schema(minimum: 1)] int $entry_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+    ): array {
+        return $this->api->healthLogEntryDelete($patient_id, $health_log_id, $entry_id, $expected_version)->toArray();
+    }
+
+    /**
+     * @param  list<string>  $uuids
+     * @return array<string, mixed>
+     */
+    public function respiratoryEventsDelete(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(type: 'array', minItems: 1, maxItems: 500, items: ['type' => 'string', 'maxLength' => 64])] array $uuids,
+    ): array {
+        return $this->api->respiratoryEventsDelete($patient_id, $uuids)->toArray();
     }
 
     /**

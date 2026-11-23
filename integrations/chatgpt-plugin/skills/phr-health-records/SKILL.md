@@ -58,9 +58,23 @@ Read the patient's existing records before every write.
 - **Correcting an existing record** (including one a person entered): read it,
   then call the type's `<type>.update` tool with its record ID and the current
   `version` you just read. A conflict means it changed; read it again.
+- **Correcting a health log or entry:** `health_logs.update` (read the log with
+  `clinical.get`, `resource_type` `health-logs`) and `health_log_entries.update`
+  (read the entry with `health_log_entries.get`) take the same current `version`.
 - **Retracting:** use `clinical.retract` only when the source is taking back a
   claim it made in error. A record missing from a newer export is not a reason
   to retract; institutions age data out.
+- **Deleting:** only when the person asks you to remove a specific record. The
+  delete tools (clinical.delete, documents.delete, health_logs.delete,
+  health_log_entries.delete, respiratory_events.delete) appear only when the
+  person granted delete access (`clinical:delete`, `documents:delete`), apart
+  from write access. Read the record, confirm with the person, then delete it
+  with its current `version`; it works on any record, whoever wrote it, exactly
+  as deleting it in PHR does. Never delete to tidy up a duplicate or a record a
+  newer import lacks.
+- **Patients:** editing a patient's details (patients.update, with its current
+  `version`) needs `patients:write`. Deleting a patient is never available to
+  you: the owner does it in PHR.
 - Every effective change returns the record to human review. Keep records
   `pending_review` unless the user explicitly approves the clinical facts.
 

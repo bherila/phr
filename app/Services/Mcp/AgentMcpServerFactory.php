@@ -306,6 +306,9 @@ final class AgentMcpServerFactory
         if ($hasClinicalUpdate) {
             $details[] = 'The resource-specific update tools require clinical:read and clinical:write, preserve import identity unless explicitly changed, conflict if the record changed, and reopen human review on every effective change.';
         }
+        if (isset($available['clinical.delete']) || isset($available['documents.delete'])) {
+            $details[] = 'The delete tools remove a record whoever wrote it, as PHR\'s own delete does: call one only when the person has asked for that record to be removed, with its current version, never to resolve a duplicate or because a newer import lacks the record; clinical_retract withdraws a claim this connection made in error. Patients cannot be deleted through this connection.';
+        }
         if ($hasImportReview) {
             $details[] = 'Keep interpreted source data distinct from evidence, inspect staged proposals and existing records, and obtain explicit user approval before imports.review.';
         }

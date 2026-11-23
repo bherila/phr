@@ -10,6 +10,7 @@ use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentOpenApi;
+use App\Support\AgentApi\AgentOperationRoutes;
 use App\Support\AgentApi\AgentOperations;
 use Bherila\McpLaravelBridge\Capabilities\Availability;
 use Bherila\McpLaravelBridge\Capabilities\Operation;
@@ -165,5 +166,22 @@ final class AgentOperationRegistryTest extends TestCase
         $request->setUserResolver(static fn () => $user);
         $this->assertNull($availability->withheld(new AgentApiPrincipal($request), 'oauth.disconnect'));
         $this->assertNotNull($availability->withheld(new AgentApiPrincipal($request), 'patients.list'));
+    }
+
+    public function test_routing_reads_one_registry_per_application(): void
+    {
+        // Each REST route reads its operation's binding. Building the registry once per
+        // route rebuilt the tool catalog 100+ times on every uncached boot.
+        $built = 0;
+        $this->app->resolving(OperationRegistry::class, static function () use (&$built): void {
+            $built++;
+        });
+        $registry = AgentOperationRoutes::registry($this->app);
+        $this->assertSame($registry, AgentOperationRoutes::registry($this->app));
+        $this->assertLessThanOrEqual(1, $built);
+        $this->assertNotNull($registry->find('clinical.delete'));
+
+        $other = $this->createApplication();
+        $this->assertNotSame($registry, AgentOperationRoutes::registry($other));
     }
 }

@@ -323,4 +323,74 @@ final readonly class AgentApiWriteDao
             json: array_filter(['action' => $action, 'eob_id' => $eobId], static fn (mixed $value): bool => $value !== null),
         ), ['resource_type', 'patient_id', 'outcome', 'data']);
     }
+
+    /** @param array<string, mixed> $data the fields to change */
+    public function patientUpdate(int $patientId, string $expectedVersion, array $data): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'PATCH',
+            "patients/{$patientId}",
+            json: ['expected_version' => $expectedVersion, 'data' => $data],
+        ), ['resource_type', 'patient_id', 'outcome', 'version', 'data']);
+    }
+
+    public function clinicalDelete(int $patientId, string $resource, int $recordId, string $expectedVersion): AgentApiPayload
+    {
+        return $this->deletion("patients/{$patientId}/{$resource}/{$recordId}", $expectedVersion);
+    }
+
+    public function documentDelete(int $patientId, int $documentId, string $expectedVersion): AgentApiPayload
+    {
+        return $this->deletion("patients/{$patientId}/documents/{$documentId}", $expectedVersion);
+    }
+
+    /** @param array<string, mixed> $data the fields to change */
+    public function healthLogUpdate(int $patientId, int $healthLogId, string $expectedVersion, array $data): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'PATCH',
+            "patients/{$patientId}/health-logs/{$healthLogId}",
+            json: ['expected_version' => $expectedVersion, 'data' => $data],
+        ), ['resource_type', 'patient_id', 'outcome', 'version', 'data']);
+    }
+
+    public function healthLogDelete(int $patientId, int $healthLogId, string $expectedVersion): AgentApiPayload
+    {
+        return $this->deletion("patients/{$patientId}/health-logs/{$healthLogId}", $expectedVersion);
+    }
+
+    /** @param array<string, mixed> $data the fields to change, in their wire shape */
+    public function healthLogEntryUpdate(int $patientId, int $healthLogId, int $entryId, string $expectedVersion, array $data): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'PATCH',
+            "patients/{$patientId}/health-logs/{$healthLogId}/entries/{$entryId}",
+            json: ['expected_version' => $expectedVersion, 'data' => $data],
+        ), ['resource_type', 'patient_id', 'health_log_id', 'outcome', 'version', 'data']);
+    }
+
+    public function healthLogEntryDelete(int $patientId, int $healthLogId, int $entryId, string $expectedVersion): AgentApiPayload
+    {
+        return $this->deletion("patients/{$patientId}/health-logs/{$healthLogId}/entries/{$entryId}", $expectedVersion);
+    }
+
+    /** @param list<string> $uuids */
+    public function respiratoryEventsDelete(int $patientId, array $uuids): AgentApiPayload
+    {
+        return AgentApiPayload::from($this->transport->send(
+            'DELETE',
+            "patients/{$patientId}/respiratory-events/batch",
+            json: ['uuids' => $uuids],
+        ), ['resource_type', 'patient_id', 'deleted', 'results']);
+    }
+
+    /** Every single-record delete answers with the tombstone it left. */
+    private function deletion(string $path, string $expectedVersion): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'DELETE',
+            $path,
+            json: ['expected_version' => $expectedVersion],
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
 }

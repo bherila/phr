@@ -28,4 +28,11 @@ interface ClinicalWriteExtension
 
     /** Runs after the record was retracted by the integration that wrote it. */
     public function afterRetract(PhrPatient $patient, Model $record): void;
+
+    /**
+     * Runs after an agent soft-deleted the record, in the delete's transaction. It
+     * does what the browser's delete of the same record does beyond the model's own
+     * delete events, so both paths leave the patient in the same state.
+     */
+    public function afterDelete(PhrPatient $patient, Model $record): void;
 }

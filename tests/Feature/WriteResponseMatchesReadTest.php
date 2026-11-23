@@ -33,7 +33,8 @@ use Tests\TestCase;
  *
  * test_every_write_route_is_covered_or_excused() enumerates the registered
  * routes, so a new write endpoint must join a provider below or be excused
- * with a reason.
+ * with a reason. An agent API delete counts as a write too: its response is the
+ * tombstone changes.list then reads, which AgentApiRecordDeletionTest pins.
  */
 final class WriteResponseMatchesReadTest extends TestCase
 {
@@ -78,6 +79,17 @@ final class WriteResponseMatchesReadTest extends TestCase
         'agent-api.v1.respiratory-events.batch' => 'returns per-event batch results',
         'agent-api.v1.clinical.resolve' => 'a read: maps external IDs to record identity',
         'agent-api.v1.clinical.retract' => 'a retracted record leaves every read, so no GET can match it',
+        'agent-api.v1.clinical.delete' => 'a deleted record leaves every read; AgentApiRecordDeletionTest pins that the response is its changes.list tombstone',
+        'agent-api.v1.documents.destroy' => 'a deleted document leaves every read; AgentApiRecordDeletionTest pins that the response is its changes.list tombstone',
+        'agent-api.v1.health-logs.destroy' => 'the log is removed outright, as the browser removes it; AgentApiRecordDeletionTest pins it',
+        'agent-api.v1.health-log-entries.destroy' => 'the entry is removed outright, as the browser removes it; AgentApiRecordDeletionTest pins it',
+        'agent-api.v1.respiratory-events.batch-destroy' => 'returns per-event batch results',
+        'agent-api.v1.mcp.session.delete' => 'MCP transport session, not a record',
+        'agent-api.v1.oauth-consent.destroy' => 'revokes a consent, not a record',
+        'agent-api.v1.oauth-patient-consent.destroy' => 'revokes a consent, not a record',
+        'agent-api.v1.oauth-token.destroy' => 'revokes a token, not a record',
+        'agent-api.v1.office-visits.unlink-record' => 'returns the link outcome, not a record; PhrEncounterLinksTest pins it',
+        'agent-api.v1.episodes.unlink-encounter' => 'returns the link outcome, not a record; PhrEpisodesTest pins it',
         'agent-api.v1.genai.claim' => 'GenAI queue lease, not a PHR record',
         'agent-api.v1.genai.requests.renew' => 'GenAI queue lease, not a PHR record',
         'agent-api.v1.genai.requests.complete' => 'GenAI queue completion, not a PHR record',
@@ -203,11 +215,11 @@ final class WriteResponseMatchesReadTest extends TestCase
     public static function agentWrites(): array
     {
         $cases = [
-            'patients' => ['agent-api.v1.patients.store', '/api/v1/patients/{id}', ['display_name' => 'Synthetic Agent Patient'], null],
+            'patients' => ['agent-api.v1.patients.store', '/api/v1/patients/{id}', ['display_name' => 'Synthetic Agent Patient'], ['notes' => 'Synthetic note']],
             'documents' => ['agent-api.v1.documents.store', '/api/v1/patients/{patient}/documents/{id}', ['external_id' => 'synthetic-document-001', 'document_type' => 'other'], ['summary' => 'Synthetic summary']],
             'text documents' => ['agent-api.v1.documents.create-text', '/api/v1/patients/{patient}/documents/{id}', ['external_id' => 'synthetic-note-001', 'document_type' => 'progress_note', 'title' => 'Synthetic progress note', 'body' => "Synthetic progress note.\n", 'author_name' => 'Synthetic Author', 'authored_at' => '2026-01-15T08:00:00Z'], ['cosigner_name' => 'Synthetic Cosigner', 'signed_at' => '2026-01-15T09:00:00Z']],
-            'health logs' => ['agent-api.v1.health-logs.store', '/api/v1/patients/{patient}/health-logs/{id}', ['external_id' => 'synthetic-log-001', 'name' => 'Synthetic agent log', 'kind' => 'custom'], null],
-            'health log entries' => ['agent-api.v1.health-log-entries.store', '/api/v1/patients/{patient}/health-logs/{healthLog}/entries/{id}', ['external_id' => 'synthetic-entry-001', 'occurred_at' => '2026-03-01T08:30:00Z'], null],
+            'health logs' => ['agent-api.v1.health-logs.store', '/api/v1/patients/{patient}/health-logs/{id}', ['external_id' => 'synthetic-log-001', 'name' => 'Synthetic agent log', 'kind' => 'custom'], ['description' => 'Synthetic description']],
+            'health log entries' => ['agent-api.v1.health-log-entries.store', '/api/v1/patients/{patient}/health-logs/{healthLog}/entries/{id}', ['external_id' => 'synthetic-entry-001', 'occurred_at' => '2026-03-01T08:30:00Z'], ['notes' => 'Synthetic entry note', 'details' => ['meal' => 'Synthetic meal']]],
         ];
         $clinical = [
             'office-visits' => [['visit_date' => '2026-01-15'], ['assessment' => 'Synthetic assessment', 'participants' => [['name' => 'Synthetic Attending', 'credentials' => 'MD', 'role_code' => 'ATND', 'is_primary' => true, 'period_start' => '2026-01-15T08:00:00Z']]]],
@@ -235,7 +247,7 @@ final class WriteResponseMatchesReadTest extends TestCase
 
     /**
      * @param  array<string, mixed>  $create
-     * @param  array<string, mixed>|null  $update  a clinical.update patch, for the resources that have one
+     * @param  array<string, mixed>|null  $update  a patch of the record (clinical.update, documents.update, patients.update, health_logs.update, health_log_entries.update), for the resources that have one
      */
     #[DataProvider('agentWrites')]
     public function test_agent_write_responses_match_a_later_read(
@@ -265,18 +277,19 @@ final class WriteResponseMatchesReadTest extends TestCase
         $method = in_array('PUT', $route->methods(), true) ? 'PUT' : 'POST';
 
         $written = $this->write($method, $url, $create)->assertCreated()->json();
-        $read = fn (int $id): array => $this->getJson(strtr($readPath, [
+        $member = fn (int $id): string => strtr($readPath, [
             '{patient}' => (string) $patient->id,
             '{healthLog}' => (string) $healthLogId,
             '{id}' => (string) $id,
-        ]))->assertOk()->json('data');
+        ]);
+        $read = fn (int $id): array => $this->getJson($member($id))->assertOk()->json('data');
         $id = (int) $written['data']['id'];
         $this->assertSameAsRead($this->agentRecord($written), $read($id));
 
         if ($update !== null) {
             $this->travel(1)->seconds();
-            $resource = explode('/', $url)[5];
-            $patched = $this->patchJson("/api/v1/patients/{$patient->id}/{$resource}/{$id}", [
+            // Each record is patched where it is read.
+            $patched = $this->patchJson($member($id), [
                 // A document carries its version inside data; clinical records also return it beside data.
                 'expected_version' => $written['version'] ?? $written['data']['version'],
                 'data' => $update,
@@ -288,7 +301,13 @@ final class WriteResponseMatchesReadTest extends TestCase
     public function test_every_write_route_is_covered_or_excused(): void
     {
         // The agent update routes are exercised by the agentWrites cases that carry a patch.
-        $covered = ['agent-api.v1.clinical.update' => true, 'agent-api.v1.documents.update' => true];
+        $covered = [
+            'agent-api.v1.clinical.update' => true,
+            'agent-api.v1.documents.update' => true,
+            'agent-api.v1.patients.update' => true,
+            'agent-api.v1.health-logs.update' => true,
+            'agent-api.v1.health-log-entries.update' => true,
+        ];
         foreach (self::browserWrites() as [$store, $update]) {
             $covered[$store] = true;
             $covered[$update] = true;
@@ -301,7 +320,7 @@ final class WriteResponseMatchesReadTest extends TestCase
         $uncovered = [];
         $writeRoutes = [];
         foreach (Route::getRoutes() as $route) {
-            $writes = array_intersect($route->methods(), ['POST', 'PUT', 'PATCH']);
+            $writes = array_intersect($route->methods(), str_starts_with($route->uri(), 'api/v1/') ? ['POST', 'PUT', 'PATCH', 'DELETE'] : ['POST', 'PUT', 'PATCH']);
             if ($writes === [] || ! preg_match('#^api/(phr|v1)/#', $route->uri())) {
                 continue;
             }

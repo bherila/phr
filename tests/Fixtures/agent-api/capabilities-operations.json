@@ -27,6 +27,14 @@
         "available": true,
         "scope": "patients:write"
     },
+    "patients.update": {
+        "available": true,
+        "scope": "patients:write",
+        "scopes": [
+            "patients:read",
+            "patients:write"
+        ]
+    },
     "records.search": {
         "available": true,
         "scope": "clinical:read"
@@ -159,6 +167,14 @@
             "documents:write"
         ]
     },
+    "documents.delete": {
+        "available": true,
+        "scope": "documents:delete",
+        "scopes": [
+            "documents:read",
+            "documents:delete"
+        ]
+    },
     "documents.upload_access_create": {
         "available": true,
         "scope": "documents:write"
@@ -275,6 +291,38 @@
         "available": true,
         "scope": "clinical:write"
     },
+    "health_logs.update": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
+    "health_logs.delete": {
+        "available": true,
+        "scope": "clinical:delete",
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ]
+    },
+    "health_log_entries.update": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
+    "health_log_entries.delete": {
+        "available": true,
+        "scope": "clinical:delete",
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ]
+    },
     "respiratory_events.list": {
         "available": true,
         "scope": "clinical:read"
@@ -282,6 +330,14 @@
     "respiratory_events.ingest": {
         "available": true,
         "scope": "clinical:write"
+    },
+    "respiratory_events.delete": {
+        "available": true,
+        "scope": "clinical:delete",
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ]
     },
     "clinical.list": {
         "available": true,
@@ -310,6 +366,14 @@
     "clinical.retract": {
         "available": true,
         "scope": "clinical:write"
+    },
+    "clinical.delete": {
+        "available": true,
+        "scope": "clinical:delete",
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ]
     },
     "office_visits.upsert": {
         "available": true,

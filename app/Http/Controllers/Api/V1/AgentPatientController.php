@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\UpdateAgentPatientRequest;
 use App\Http\Requests\PHR\StorePatientRequest;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
+use App\Services\AgentApi\AgentPatientUpdateService;
 use App\Services\PHR\Access\AgentPatientPresenter;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Fills\PatientNameMatcher;
@@ -13,6 +15,7 @@ use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\OAuthPatientConsents;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -28,6 +31,7 @@ final class AgentPatientController extends Controller
         private PhrPatientAccessService $accessService,
         private AgentPatientPresenter $presenter,
         private PhrPublicIds $publicIds,
+        private AgentClinicalRecordVersion $versions,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -114,10 +118,48 @@ final class AgentPatientController extends Controller
         $resolved = $this->accessService->accessiblePatientWithCurrentGrant($patient, $userId);
 
         $billingOnly = $this->billingOnly($request);
+        $payload = $this->presenter->payload($resolved, $userId, includeNotes: ! $billingOnly, billingOnly: $billingOnly);
 
         return response()->json([
-            'data' => $this->presenter->payload($resolved, $userId, includeNotes: ! $billingOnly, billingOnly: $billingOnly),
+            // The version patients.update needs; a billing projection never edits a patient.
+            'data' => $billingOnly ? $payload : $this->withVersion($payload, $resolved),
         ]);
+    }
+
+    /**
+     * The browser's patient edit (PATCH /patients/{patient}) for the fields an agent
+     * may set, by the patient's current version. Deleting a patient is not offered
+     * here: it stays the browser's owner-only workflow with a preview and a typed
+     * confirmation.
+     */
+    public function update(UpdateAgentPatientRequest $request, int $patient): JsonResponse
+    {
+        app(OAuthPatientConsents::class)->assertPatient($request, $patient);
+        $userId = (int) $request->user('api')?->id;
+        $resolved = $this->accessService->writablePatient($patient, $userId);
+        $result = app(AgentPatientUpdateService::class)->update($resolved, $request->expectedVersion(), $request->changes());
+        /** @var PhrPatient $updated */
+        $updated = $result->record;
+        $updated->load(['accessGrants' => function (Relation $relation) use ($userId): void {
+            $relation->getQuery()->where('user_id', $userId);
+        }]);
+
+        return response()->json([
+            'resource_type' => 'patient',
+            'patient_id' => (int) $updated->id,
+            'outcome' => $result->outcome,
+            'version' => $result->version,
+            'data' => $this->withVersion($this->presenter->payload($updated, $userId, includeNotes: true), $updated, $result->version),
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function withVersion(array $payload, PhrPatient $patient, ?string $version = null): array
+    {
+        return [...$payload, 'version' => $version ?? $this->versions->for($patient)];
     }
 
     /**
@@ -163,8 +205,11 @@ final class AgentPatientController extends Controller
         // accessGrants, and PhrPatientAccessService::canWrite() short-circuits
         // on ownership before touching the relation. show() loads the grant
         // because its caller may hold only a shared-access row.
+        // create() never reads the row back; the version is that of the stored patient.
+        $patient->refresh();
+
         return response()->json([
-            'data' => $this->presenter->payload($patient, $userId, includeNotes: true),
+            'data' => $this->withVersion($this->presenter->payload($patient, $userId, includeNotes: true), $patient),
         ], 201);
     }
 

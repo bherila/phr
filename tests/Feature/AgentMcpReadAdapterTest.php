@@ -216,10 +216,18 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertStringContainsString('without creating duplicate health records', $importGuide);
         $this->assertStringContainsString('wait for explicit user approval', $importGuide);
 
-        $tools = $this->mcpPost([
-            'jsonrpc' => '2.0', 'id' => 4, 'method' => 'tools/list', 'params' => [],
-        ], $session)->assertOk()->json('result.tools');
-        $this->assertIsArray($tools);
+        // Every page of the list: with every scope there are more tools than one page holds.
+        $tools = [];
+        $cursor = null;
+        $page = 4;
+        do {
+            $result = $this->mcpPost([
+                'jsonrpc' => '2.0', 'id' => $page++, 'method' => 'tools/list', 'params' => $cursor === null ? [] : ['cursor' => $cursor],
+            ], $session)->assertOk()->json('result');
+            $this->assertIsArray($result['tools'] ?? null);
+            $tools = [...$tools, ...$result['tools']];
+            $cursor = $result['nextCursor'] ?? null;
+        } while ($cursor !== null);
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'patients.create', 'records.search', 'timeline.list',
             'clinical.list', 'clinical.get', 'eobs.list', 'documents.get', 'documents.content.get', 'documents.update', 'documents.upload', 'documents.create_text',
@@ -236,11 +244,12 @@ final class AgentMcpReadAdapterTest extends TestCase
             'complete_genai_request', 'fail_genai_request',
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
             'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update',
-            'clinical.resolve', 'clinical.retract'] as $name) {
+            'clinical.resolve', 'clinical.retract', 'clinical.delete', 'documents.delete', 'patients.update',
+            'health_logs.update', 'health_logs.delete', 'health_log_entries.update', 'health_log_entries.delete', 'respiratory_events.delete'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            73 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            81 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
@@ -250,6 +259,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             'reconciliations.apply',
             'exports.create', 'native_backups.create',
             'claim_genai_request', 'renew_genai_lease', 'complete_genai_request', 'fail_genai_request',
+            'clinical.delete', 'documents.delete', 'health_logs.delete', 'health_log_entries.delete', 'respiratory_events.delete',
         ];
         foreach ($tools as $tool) {
             $this->assertSame(
@@ -263,6 +273,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 str_ends_with((string) $tool['name'], '.upsert')
                     || str_ends_with((string) $tool['name'], '.update')
                     || str_ends_with((string) $tool['name'], '.retract')
+                    || str_ends_with((string) $tool['name'], '.delete')
                     || in_array($tool['name'], ['imports.review', 'imports.retry', 'medication_fills.resolve_duplicate', 'office_visits.unlink_record', 'episodes.unlink_encounter', 'documents.upload_cancel', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );

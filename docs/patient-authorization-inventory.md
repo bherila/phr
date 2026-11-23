@@ -91,12 +91,17 @@ explicit `--actor` and go through the same three methods.
 | Agent: list EOB lines | `GET api/v1/patients/{patient}/eobs/{eob}/lines` | R | `clinical:read` only | existing-protected; billing-only refused |
 | Agent: document download access / bytes | `POST api/v1/patients/{patient}/documents/{document}/download-access`, signed `GET .../file` | R; document scoped to resolved patient | `documents:read` only | existing-protected; billing-only refused even with another credential's signature |
 | Agent: create patient | `POST api/v1/patients` | — (creates own) | `patients:write` | existing-protected |
+| Agent: update patient | `PATCH api/v1/patients/{patient}` | W; current version required | `patients:read` **and** `patients:write` | new (#441); the browser's fields except real names; deleting a patient has no agent route |
 | Agent: list allergies | `GET api/v1/patients/{patient}/allergies` | R | `clinical:read` | existing-protected |
 | Agent: show allergy | `GET api/v1/patients/{patient}/allergies/{record}` | R | `clinical:read` | existing-protected |
 | Agent: resolve external ids | `POST api/v1/patients/{patient}/allergies/resolve` | R | `clinical:read` | existing-protected |
 | Agent: upsert allergy | `PUT api/v1/patients/{patient}/allergies` | W | `clinical:write` | existing-protected |
 | Agent: patch allergy | `PATCH api/v1/patients/{patient}/allergies/{record}` | W | `clinical:read` **and** `clinical:write` | existing-protected |
 | Agent: retract allergy | `POST api/v1/patients/{patient}/allergies/{record}/retract` | W | `clinical:write` | existing-protected |
+| Agent: delete allergy (soft) | `DELETE api/v1/patients/{patient}/allergies/{record}` | W; any author; current version required | `clinical:read` **and** `clinical:delete` | new (#441); the browser's soft delete and its side effects, answers with the changes.list tombstone |
+| Agent: delete document (soft) | `DELETE api/v1/patients/{patient}/documents/{document}` | W; any author; current version required | `documents:read` **and** `documents:delete` | new (#441) |
+| Agent: update / delete health log or entry | `PATCH`/`DELETE api/v1/patients/{patient}/health-logs/{healthLog}[/entries/{entry}]` | W; current version required | update: `clinical:read` **and** `clinical:write`; delete: `clinical:read` **and** `clinical:delete` | new (#441); a delete removes the row outright, as the browser does |
+| Agent: delete respiratory events | `DELETE api/v1/patients/{patient}/respiratory-events/batch` | W | `clinical:read` **and** `clinical:delete` | new (#441); the browser's batch delete by device event UUID |
 | Agent: record search / timeline / changes | `GET api/v1/patients/{patient}/{records,timeline,changes}` | R | `clinical:read` | existing-protected |
 | MCP allergy tools | `POST api/v1/mcp` | R / W per tool | `mcp:use` + the tool's own scope | existing-protected (re-enters the routes above) |
 | Import C-CDA / FHIR / MyChart / EOB / PDF | `php artisan phr:import-*` | W | — | existing-protected, explicit `--actor` |

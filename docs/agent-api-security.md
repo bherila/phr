@@ -270,6 +270,50 @@ record a person deleted or a source withdrew, and resolution reports them with t
 lifecycle rather than as unresolved -- which is how a re-importing client learns not
 to re-add what the patient removed.
 
+### Agent deletes and the delete scopes (#441)
+
+An agent may delete what the person could delete in the browser, by the browser's own
+delete. Destructive access is its own consent: `clinical:delete` (clinical records,
+health logs and entries, respiratory device events) and `documents:delete` (documents)
+are granted apart from `clinical:write` and `documents:write`, so a client allowed to
+add and correct records cannot remove them unless the person allowed that too. No
+earlier grant includes them: a refresh token keeps the scopes it was issued with, and
+without them the delete tools are absent from `tools/list` and the REST routes answer
+403. Each delete also needs the matching read scope, because the record ID and version
+it requires come from a read.
+
+`clinical.delete` (`DELETE /patients/{patient}/{resource}/{record}`, every writable
+clinical type) and `documents.delete` soft-delete (`deleted_at`) a record of the resolved,
+writable patient whoever wrote it, a person in the browser included, unlike
+`clinical.retract`, which stays within the caller's own import namespace. The record's
+current version is checked under its row lock before anything changes (409 otherwise,
+disclosing nothing). The model's own delete runs, with its events, and then what the
+browser's delete does beyond them (a prescription fill releases the medication only it
+kept alive), so both paths leave the same rows; links to the record (encounter links,
+episode groupings, transitions naming a deleted medication) stay as the browser leaves
+them. The response is the deleted tombstone `changes.list` reports from then on, never
+the record's content. A record already deleted answers `unchanged` whatever version is
+sent, so a retry after a lost response settles; that answer discloses only the
+tombstone the change feed already shows.
+
+Health logs, their entries and respiratory events have no `deleted_at`: the browser
+removes them outright (a log's entries with it, by foreign key). `health_logs.delete`,
+`health_log_entries.delete` and `respiratory_events.delete` do exactly that, so they
+leave no tombstone, and a repeated single delete answers 404. Respiratory events carry no
+version and are deleted by the device's event UUIDs in a batch of at most 500, each
+answering `deleted` or `not_found`, as in the browser. EOBs have no delete in the
+browser or the agent API: their corrections history and claim links have no defined
+soft-delete semantics yet.
+
+Deleting a patient is not an agent operation. It stays the owner-only browser workflow
+with a deletion preview digest and a typed confirmation. `patients.update` (`patients:read`
+and `patients:write`, owner or manager access) edits the fields the browser's patient
+edit allows, except real names, which only a person sets because they route documents
+to a chart; it is versioned like every other update. `health_logs.update` and
+`health_log_entries.update` (`clinical:read` and `clinical:write`) edit a log or entry by
+its current version with the browser's validation. A log's version excludes its entry
+count and latest entry time, so a new entry never makes a held log version stale.
+
 MCP output schemas are the REST response contract rather than a second one. Each
 tool declares the versioned operation it mirrors, and its schema is the transitive
 closure of that operation's OpenAPI response component packaged into local `$defs`,

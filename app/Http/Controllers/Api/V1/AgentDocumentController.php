@@ -7,9 +7,11 @@ use App\DataTransferObjects\PHR\DocumentUploadData;
 use App\DataTransferObjects\PHR\DocumentUploadResult;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AgentApi\CreateAgentDocumentTextRequest;
+use App\Http\Requests\AgentApi\DeleteAgentRecordRequest;
 use App\Http\Requests\AgentApi\StoreAgentDocumentRequest;
 use App\Http\Requests\AgentApi\UpdateAgentDocumentRequest;
 use App\Models\PhrDocument;
+use App\Services\AgentApi\AgentRecordDeletionService;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Documents\PhrDocumentNotePayload;
 use App\Services\PHR\Documents\PhrDocumentRelations;
@@ -292,6 +294,23 @@ final class AgentDocumentController extends Controller
             'outcome' => $outcome,
             'version' => $version,
             'data' => $this->payload($updated),
+        ]);
+    }
+
+    /**
+     * The browser's soft delete of a document, whoever added it. The response is
+     * the tombstone changes.list reports from now on.
+     */
+    public function destroy(DeleteAgentRecordRequest $request, int $patient, int $document): JsonResponse
+    {
+        $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user('api')?->id);
+        $result = app(AgentRecordDeletionService::class)->deleteDocument($resolvedPatient, $document, $request->expectedVersion());
+
+        return response()->json([
+            'resource_type' => 'document',
+            'patient_id' => (int) $resolvedPatient->id,
+            'outcome' => $result->outcome,
+            'data' => $result->tombstone(),
         ]);
     }
 

@@ -75,7 +75,7 @@ final class AgentClinicalReadController extends Controller
                     $resourceClass,
                     $record,
                     $request,
-                    isset($definition['write_rules']),
+                    $this->versioned($definition),
                     fn (array $payload): array => $this->encounterContext->add($payload, $resource, (int) $record->getKey(), $encounters),
                 ))
                 ->values(),
@@ -111,7 +111,7 @@ final class AgentClinicalReadController extends Controller
                 $definition['resource'],
                 $resolved,
                 $request,
-                isset($definition['write_rules']),
+                $this->versioned($definition),
                 fn (array $payload): array => $this->encounterContext->add($payload, $resource, (int) $resolved->getKey(), $encounters),
             ),
         ]);
@@ -249,6 +249,17 @@ final class AgentClinicalReadController extends Controller
     private function encodedCursor(array $validated): ?string
     {
         return isset($validated['cursor']) ? (string) $validated['cursor'] : null;
+    }
+
+    /**
+     * A record an agent may change or delete carries the version that requires:
+     * every writable clinical type, and health logs (health_logs.update and .delete).
+     *
+     * @param  array{write_rules?: mixed, health_log_aggregates?: bool}  $definition
+     */
+    private function versioned(array $definition): bool
+    {
+        return isset($definition['write_rules']) || ($definition['health_log_aggregates'] ?? false);
     }
 
     /**
