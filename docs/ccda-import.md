@@ -122,7 +122,8 @@ No C-CDA section states a hospital stay's orders, so a C-CDA import never writes
 `inpatient` medication; those come from a source that says so (a FHIR category). A
 Medication Activity inside a Discharge Medication act (`4.35`) is the discharge list's,
 and one inside an Admission Medication act (`4.36`) is skipped, wherever its section was
-routed. A row of any list but the home list is stored under its id scoped by the setting
+routed; one that names no product is read from the table row it references as a row of
+the discharge list too, under the scoped id. A row of any list but the home list is stored under its id scoped by the setting
 (`discharge:` + the id), so an activity listed in both the Medications and the Discharge
 Medications section, as a resumed home medication may be, is two rows and never one row
 moved between the lists; an earlier home row is never adopted onto a scoped id. A

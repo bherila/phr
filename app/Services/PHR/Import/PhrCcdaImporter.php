@@ -356,7 +356,7 @@ class PhrCcdaImporter
                     }
                     $records[$entry->jobType][] = $record;
                 } elseif ($entry->narrativeCells !== null) {
-                    $unnamed[] = $narrative($entry->narrativeCells);
+                    $unnamed[] = $entry->narrativeRecord ?? $narrative($entry->narrativeCells);
                 } else {
                     $skipped++;
                 }

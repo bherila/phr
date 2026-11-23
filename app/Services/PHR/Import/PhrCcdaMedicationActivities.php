@@ -152,6 +152,10 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
      * an earlier import may have stored it under. Any other list's row is scoped: its
      * record and table-row ids carry the setting, and the ids an earlier load gave a
      * home medication are not its own, so no home row is ever adopted onto it.
+     *
+     * An activity nothing names is read from its table row as a row of the same
+     * list, under the same scoped id (#432): the section's own reading of its rows
+     * would put a Discharge Medication act's row on the home list.
      */
     private function inList(PhrCcdaEntry $entry, ?string $category): PhrCcdaEntry
     {
@@ -163,11 +167,12 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
             'category' => $category,
             'external_id' => PhrMedicationCategory::scopedExternalId(is_string($entry->record['external_id'] ?? null) ? $entry->record['external_id'] : null, $category),
         ];
+        $narrative = $record === null && $entry->narrativeCells !== null ? $this->narrativeRecordAs($entry->narrativeCells, $category) : null;
         if ($category === PhrMedicationCategory::COMMUNITY) {
-            return new PhrCcdaEntry($entry->jobType, $record, $entry->narrativeCells, $entry->narrativeId, $entry->sourceIds, $entry->skip);
+            return new PhrCcdaEntry($entry->jobType, $record, $entry->narrativeCells, $entry->narrativeId, $entry->sourceIds, $entry->skip, $narrative);
         }
 
-        return new PhrCcdaEntry($entry->jobType, $record, $entry->narrativeCells, PhrMedicationCategory::scopedExternalId($entry->narrativeId, $category), [], $entry->skip);
+        return new PhrCcdaEntry($entry->jobType, $record, $entry->narrativeCells, PhrMedicationCategory::scopedExternalId($entry->narrativeId, $category), [], $entry->skip, $narrative);
     }
 
     public function narrativeRecord(array $cells): array

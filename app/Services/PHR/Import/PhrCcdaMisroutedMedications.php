@@ -293,7 +293,7 @@ final class PhrCcdaMisroutedMedications
 
     private static function category(PhrCcdaEntry $entry): ?string
     {
-        $category = $entry->record['category'] ?? null;
+        $category = $entry->record['category'] ?? $entry->narrativeRecord['category'] ?? null;
 
         return is_string($category) ? $category : null;
     }
