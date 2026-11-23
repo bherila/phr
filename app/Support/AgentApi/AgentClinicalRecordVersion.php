@@ -4,6 +4,7 @@ namespace App\Support\AgentApi;
 
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
+use App\Models\PhrHealthLog;
 use App\Models\PhrMedicationFill;
 use App\Services\PHR\Documents\PhrDocumentRelations;
 use Illuminate\Database\Eloquent\Model;
@@ -35,6 +36,12 @@ final class AgentClinicalRecordVersion
         // changes. Links aren't the fill's own columns, so they must not refuse a client's write.
         if ($record instanceof PhrMedicationFill) {
             unset($attributes['updated_at']);
+        }
+        // A read loads a log with its entry count and latest entry time. They are
+        // its entries', not its own columns: a log loaded without them, or a new
+        // entry, must not change the log's version.
+        if ($record instanceof PhrHealthLog) {
+            unset($attributes['entries_count'], $attributes['latest_entry_at']);
         }
         // A document's addendum or amendment link is a row of its own (phr#409) but part of
         // what the document says: a link-only change must move the version, even within

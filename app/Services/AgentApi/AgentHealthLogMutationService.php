@@ -3,6 +3,8 @@
 namespace App\Services\AgentApi;
 
 use App\DataTransferObjects\AgentApi\AgentAppendResult;
+use App\DataTransferObjects\AgentApi\AgentDeletionResult;
+use App\DataTransferObjects\AgentApi\ClinicalUpsertResult;
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
 use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\Models\PhrHealthLog;
@@ -12,8 +14,10 @@ use App\Services\PHR\HealthLog\PhrHealthLogDao;
 use App\Services\PHR\HealthLog\PhrHealthLogService;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiRequestFingerprint;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -27,6 +31,7 @@ final readonly class AgentHealthLogMutationService
         private AgentApiMutationIdentityDao $identities,
         private PhrHealthLogDao $healthLogs,
         private PhrHealthLogService $mutations,
+        private AgentClinicalRecordVersion $versions,
     ) {}
 
     public function createLog(
@@ -69,6 +74,86 @@ final readonly class AgentHealthLogMutationService
             ),
             fn (int $id): PhrHealthLogEntry => $this->healthLogs->entry($patient->id, $healthLog->id, $id),
         );
+    }
+
+    /**
+     * health_logs.update: the browser's log edit (a unique name, a kind), applied
+     * under the log's row lock only when the caller holds its current version. A log
+     * has no review status, so an effective change is simply saved.
+     *
+     * @param  array<string, mixed>  $changes
+     */
+    public function updateLog(PhrPatient $patient, int $healthLogId, string $expectedVersion, array $changes): ClinicalUpsertResult
+    {
+        return DB::transaction(function () use ($patient, $healthLogId, $expectedVersion, $changes): ClinicalUpsertResult {
+            $log = $this->healthLogs->logsQuery($patient->id)->lockForUpdate()->findOrFail($healthLogId);
+            $current = $this->assertVersion($log, $expectedVersion);
+            $log->fill($changes);
+            if ($log->isDirty()) {
+                $this->mutations->updateLog($log, $changes);
+            }
+            $read = $this->healthLogs->log($patient->id, $healthLogId, true);
+
+            return $log->wasChanged()
+                ? new ClinicalUpsertResult($read, ClinicalUpsertResult::UPDATED, $this->versions->for($read))
+                : new ClinicalUpsertResult($read, ClinicalUpsertResult::UNCHANGED, $current);
+        }, 3);
+    }
+
+    /** @param array<string, mixed> $changes */
+    public function updateEntry(PhrPatient $patient, PhrHealthLog $healthLog, int $entryId, string $expectedVersion, array $changes): ClinicalUpsertResult
+    {
+        return DB::transaction(function () use ($patient, $healthLog, $entryId, $expectedVersion, $changes): ClinicalUpsertResult {
+            $entry = $this->healthLogs->entriesQuery($patient->id, $healthLog->id)->lockForUpdate()->findOrFail($entryId);
+            $current = $this->assertVersion($entry, $expectedVersion);
+            $entry->fill($changes);
+            if (! $entry->isDirty()) {
+                // An exact no-op answers with the entry as stored, not as filled.
+                return new ClinicalUpsertResult($entry->refresh(), ClinicalUpsertResult::UNCHANGED, $current);
+            }
+            $updated = $this->mutations->updateEntry($entry, $changes);
+
+            return new ClinicalUpsertResult($updated, ClinicalUpsertResult::UPDATED, $this->versions->for($updated));
+        }, 3);
+    }
+
+    /**
+     * The browser removes a health log outright (it has no deleted_at), and its
+     * entries with it through their foreign key. An agent's delete does the same,
+     * so there is no tombstone to return again: a repeat finds nothing.
+     */
+    public function deleteLog(PhrPatient $patient, int $healthLogId, string $expectedVersion): AgentDeletionResult
+    {
+        return DB::transaction(function () use ($patient, $healthLogId, $expectedVersion): AgentDeletionResult {
+            $log = $this->healthLogs->logsQuery($patient->id)->lockForUpdate()->findOrFail($healthLogId);
+            $this->assertVersion($log, $expectedVersion);
+            $log->delete();
+
+            return new AgentDeletionResult(AgentDeletionResult::DELETED, 'health-logs', $healthLogId, (int) $patient->id, Carbon::now());
+        }, 3);
+    }
+
+    /** As the browser, an entry is removed outright. */
+    public function deleteEntry(PhrPatient $patient, PhrHealthLog $healthLog, int $entryId, string $expectedVersion): AgentDeletionResult
+    {
+        return DB::transaction(function () use ($patient, $healthLog, $entryId, $expectedVersion): AgentDeletionResult {
+            $entry = $this->healthLogs->entriesQuery($patient->id, $healthLog->id)->lockForUpdate()->findOrFail($entryId);
+            $this->assertVersion($entry, $expectedVersion);
+            $entry->delete();
+
+            return new AgentDeletionResult(AgentDeletionResult::DELETED, 'health-log-entries', $entryId, (int) $patient->id, Carbon::now());
+        }, 3);
+    }
+
+    /** A stale or fabricated version is refused before anything changes, and discloses nothing. */
+    private function assertVersion(Model $record, string $expectedVersion): string
+    {
+        $current = $this->versions->for($record);
+        if (! hash_equals($current, $expectedVersion)) {
+            throw new ConflictHttpException('The record changed; fetch it and retry with its current version.');
+        }
+
+        return $current;
     }
 
     /**

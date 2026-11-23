@@ -175,6 +175,10 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::operation('patients.get', [AgentPatientController::class, 'show'])
             ->whereNumber('patient')
             ->middleware('throttle:agent-api');
+        // Deleting a patient stays the browser's owner-only workflow.
+        Route::operation('patients.update', [AgentPatientController::class, 'update'])
+            ->whereNumber('patient')
+            ->middleware('throttle:agent-api');
 
         Route::operation('records.search', [AgentRecordSearchController::class, 'search'])
             ->whereNumber('patient')
@@ -210,6 +214,8 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::operation('documents.content.get', [AgentDocumentController::class, 'content'])
             ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
         Route::operation('documents.update', [AgentDocumentController::class, 'update'])
+            ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
+        Route::operation('documents.delete', [AgentDocumentController::class, 'destroy'])
             ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
         Route::operation('documents.upload_access_create', [AgentDocumentUploadController::class, 'open'])
             ->whereNumber('patient')->middleware('throttle:agent-api');
@@ -282,9 +288,19 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api');
         Route::operation('health_log_entries.get', [AgentHealthLogController::class, 'entry'])
             ->whereNumber(['patient', 'healthLog', 'entry'])->middleware('throttle:agent-api');
+        Route::operation('health_log_entries.update', [AgentHealthLogController::class, 'updateEntry'])
+            ->whereNumber(['patient', 'healthLog', 'entry'])->middleware('throttle:agent-api');
+        Route::operation('health_log_entries.delete', [AgentHealthLogController::class, 'destroyEntry'])
+            ->whereNumber(['patient', 'healthLog', 'entry'])->middleware('throttle:agent-api');
+        Route::operation('health_logs.update', [AgentHealthLogController::class, 'update'])
+            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api');
+        Route::operation('health_logs.delete', [AgentHealthLogController::class, 'destroy'])
+            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api');
         Route::operation('respiratory_events.list', [AgentRespiratoryEventController::class, 'index'])
             ->whereNumber('patient')->middleware('throttle:agent-api');
         Route::operation('respiratory_events.ingest', [AgentRespiratoryEventController::class, 'batch'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('respiratory_events.delete', [AgentRespiratoryEventController::class, 'destroyBatch'])
             ->whereNumber('patient')->middleware('throttle:agent-api');
 
         // DICOM metadata remains bounded; file bytes are sent one-at-a-time to a
@@ -340,6 +356,13 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         // degrades to a receipt without read scope, and an upsert hands a
         // write-only client the version this precondition needs.
         Route::operation('clinical.retract', [AgentClinicalWriteController::class, 'retract'])
+            ->whereNumber(['patient', 'record'])
+            ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
+            ->middleware('throttle:agent-api');
+        // The browser's soft delete, for a record whoever wrote it. Destructive
+        // access is its own scope, clinical:delete, and the record ID and version
+        // come from a read, so it requires clinical:read as well.
+        Route::operation('clinical.delete', [AgentClinicalWriteController::class, 'delete'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
             ->middleware('throttle:agent-api');

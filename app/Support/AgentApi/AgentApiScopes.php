@@ -15,6 +15,13 @@ final class AgentApiScopes
     public const string CLINICAL_WRITE = 'clinical:write';
 
     /**
+     * Removing a record is granted apart from writing one: a client that may add
+     * and correct records cannot delete them unless the person allowed that too.
+     * An earlier grant never includes it, so no existing token gains it.
+     */
+    public const string CLINICAL_DELETE = 'clinical:delete';
+
+    /**
      * Claim-level financial EOB metadata and opaque patient identifiers.
      * No clinical detail, patient labels or document download. REST-only.
      */
@@ -23,6 +30,9 @@ final class AgentApiScopes
     public const string DOCUMENTS_READ = 'documents:read';
 
     public const string DOCUMENTS_WRITE = 'documents:write';
+
+    /** Removing a document, granted apart from uploading and editing one. */
+    public const string DOCUMENTS_DELETE = 'documents:delete';
 
     public const string IMPORTS_READ = 'imports:read';
 
@@ -48,12 +58,14 @@ final class AgentApiScopes
         return [
             self::IDENTITY_READ => 'Read your account identity and granted scopes',
             self::PATIENTS_READ => 'List and read patients you can access',
-            self::PATIENTS_WRITE => 'Create new patients you own',
+            self::PATIENTS_WRITE => 'Create new patients you own and edit the details of patients you can manage',
             self::CLINICAL_READ => 'Read clinical records for patients you can access',
             self::CLINICAL_WRITE => 'Create and update clinical records you can manage',
+            self::CLINICAL_DELETE => 'Delete clinical records, health logs and device events you can manage, whoever added them',
             self::BILLING_READ => 'Read claim-level financial metadata and opaque patient identifiers, without document download',
             self::DOCUMENTS_READ => 'Read document metadata and download authorized files',
             self::DOCUMENTS_WRITE => 'Upload patient documents',
+            self::DOCUMENTS_DELETE => 'Delete patient documents you can manage, whoever added them',
             self::IMPORTS_READ => 'Read import jobs and extraction results',
             self::IMPORTS_WRITE => 'Create and review import jobs',
             self::EXPORTS_READ => 'Read export and backup status and download results',

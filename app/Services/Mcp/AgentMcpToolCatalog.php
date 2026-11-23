@@ -38,6 +38,8 @@ final class AgentMcpToolCatalog
     {
         $byExternalId = new WriteSafety(idempotencyKey: IdempotencyKey::Argument);
         $byVersion = new WriteSafety(expectedVersion: true);
+        // A delete is destructive and taken only on the person's word.
+        $deleteByVersion = new WriteSafety(expectedVersion: true, confirm: true, note: 'Only when the person asked for this record to be removed.');
 
         $operations = [
             $this->read('capabilities.get', 'Get capabilities', 'Discover the PHR API version, scopes, operations, resources, and limits.', [$reads, 'capabilitiesGet']),
@@ -55,10 +57,18 @@ final class AgentMcpToolCatalog
             $this->write(
                 'patients.create',
                 'Create patient',
-                'Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first.',
+                'Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first. Deleting a patient is not available to agents: the owner does it in PHR.',
                 [$writes, 'patientsCreate'],
                 new WriteSafety(note: 'No deduplication key: confirm the person is absent with patients.list first.'),
                 idempotent: false,
+            ),
+            $this->write(
+                'patients.update',
+                'Update patient',
+                'Edit a patient\'s display_name, relationship, birth_date, sex_at_birth or notes by its ID and current version (read it with patients_get). data holds only the fields to change; null clears any field but display_name. Real names are set only by a person in PHR. A stale version is refused; read the patient again. Deleting a patient is not available to agents: it is an owner-only workflow in PHR with a preview and a typed confirmation.',
+                [$writes, 'patientsUpdate'],
+                $byVersion,
+                effect: Effect::Destructive,
             ),
             $this->read('records.search', 'Search records', 'Search clinical records using the versioned REST filters and cursor pagination.', [$reads, 'recordsSearch']),
             $this->read('timeline.list', 'List timeline', 'List a patient timeline using the versioned REST filters and cursor pagination.', [$reads, 'timelineList']),
@@ -144,6 +154,14 @@ final class AgentMcpToolCatalog
                 'Edit a document\'s title, document_type, observed_at, summary, tags, note metadata (loinc_code, source_type_label, author_name, author_role, cosigner_name, authored_at, signed_at, doc_status, patient_signature_status, patient_signed_at) or relates_to by its ID and current version (read it with documents_get). data holds only the fields to change; null clears a field (relates_to null removes the link), and tags replaces the list. The file and its import identity never change. A stale version is refused; read the document again. Every effective change returns the document to pending_review for the person to approve.',
                 [$writes, 'documentsUpdate'],
                 $byVersion,
+                effect: Effect::Destructive,
+            ),
+            $this->write(
+                'documents.delete',
+                'Delete document',
+                'Delete one document by its ID and current version (read it with documents_get), whoever added it, a person in PHR included. This is PHR\'s own delete: the document leaves every read and changes_list reports it as deleted. Call it only when the person has asked for this document to be removed. A document already deleted answers outcome unchanged; a stale version is refused, so read the document again.',
+                [$writes, 'documentsDelete'],
+                $deleteByVersion,
                 effect: Effect::Destructive,
             ),
             $this->write(
@@ -284,6 +302,38 @@ final class AgentMcpToolCatalog
                 [$writes, 'healthLogEntriesAppend'],
                 $byExternalId,
             ),
+            $this->write(
+                'health_logs.update',
+                'Update health log',
+                'Edit a health log\'s name (unique for the patient), kind, description or archived_at by its ID and current version (read it with clinical_get, resource_type health-logs). data holds only the fields to change. A stale version is refused; read the log again.',
+                [$writes, 'healthLogsUpdate'],
+                $byVersion,
+                effect: Effect::Destructive,
+            ),
+            $this->write(
+                'health_logs.delete',
+                'Delete health log',
+                'Delete one health log and every entry in it by its ID and current version (read it with clinical_get, resource_type health-logs), whoever created it. As in PHR, the log is removed outright, so a repeat answers not found. Call it only when the person has asked for this log to be removed.',
+                [$writes, 'healthLogsDelete'],
+                $deleteByVersion,
+                effect: Effect::Destructive,
+            ),
+            $this->write(
+                'health_log_entries.update',
+                'Update health log entry',
+                'Edit an entry\'s occurred_at, title, notes, intensity, tags or details by its ID and current version (read it with health_log_entries_get). data holds only the fields to change; null clears any field but occurred_at, tags replaces the list and details the object. A stale version is refused; read the entry again.',
+                [$writes, 'healthLogEntriesUpdate'],
+                $byVersion,
+                effect: Effect::Destructive,
+            ),
+            $this->write(
+                'health_log_entries.delete',
+                'Delete health log entry',
+                'Delete one health log entry by its ID and current version (read it with health_log_entries_get), whoever recorded it. As in PHR, the entry is removed outright, so a repeat answers not found. Call it only when the person has asked for this entry to be removed.',
+                [$writes, 'healthLogEntriesDelete'],
+                $deleteByVersion,
+                effect: Effect::Destructive,
+            ),
             $this->read('respiratory_events.list', 'List respiratory events', 'List bounded Sinus Sentinel events for an accessible patient.', [$reads, 'respiratoryEventsList']),
             $this->write(
                 'respiratory_events.ingest',
@@ -291,6 +341,14 @@ final class AgentMcpToolCatalog
                 'Idempotently ingest a bounded Sinus Sentinel event batch using the device validation contract.',
                 [$writes, 'respiratoryEventsIngest'],
                 new WriteSafety(note: 'Events are deduplicated by their device identifiers.'),
+            ),
+            $this->write(
+                'respiratory_events.delete',
+                'Delete respiratory events',
+                'Delete up to 500 Sinus Sentinel events, named by their client_event_uuid (read them with respiratory_events_list). As in PHR, events are removed outright; each UUID answers deleted or not_found, so a repeated batch changes nothing. Call it only when the person has asked for these events to be removed.',
+                [$writes, 'respiratoryEventsDelete'],
+                new WriteSafety(confirm: true, note: 'Only when the person asked for these events to be removed; a repeat answers not_found.'),
+                effect: Effect::Destructive,
             ),
         ];
 
@@ -313,9 +371,17 @@ final class AgentMcpToolCatalog
         $operations[] = $this->write(
             AgentClinicalResourceCatalog::RETRACT_OPERATION_ID,
             'Retract clinical record',
-            'Withdraw one clinical record this connection wrote, by its resource_type, record ID, and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.',
+            'Withdraw one clinical record this connection wrote, by its resource_type, record ID, and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved. It reaches only records this connection wrote: to remove any other record, when the person asks for that, use clinical_delete.',
             [$writes, 'clinicalRetract'],
             $byVersion,
+            effect: Effect::Destructive,
+        );
+        $operations[] = $this->write(
+            AgentClinicalResourceCatalog::DELETE_OPERATION_ID,
+            'Delete clinical record',
+            'Delete one clinical record of the given resource_type by its record ID and current version (read it with clinical_get), whoever wrote it, a person in PHR included. This is PHR\'s own delete: the record leaves every read and changes_list reports it as deleted, and a prescription fill also releases a medication only it kept alive. Call it only when the person has asked for this record to be removed, never to tidy up a duplicate or a record missing from a newer import. To withdraw a claim this connection made in error, use clinical_retract. A record already deleted answers outcome unchanged; a stale version is refused, so read the record again.',
+            [$writes, 'clinicalDelete'],
+            $deleteByVersion,
             effect: Effect::Destructive,
         );
 

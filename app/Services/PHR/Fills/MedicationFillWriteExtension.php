@@ -45,4 +45,11 @@ final class MedicationFillWriteExtension implements ClinicalWriteExtension
         /** @var PhrMedicationFill $record */
         $this->writer->release($record);
     }
+
+    /** As the browser's fill delete: a medication this fill alone kept alive goes with it. */
+    public function afterDelete(PhrPatient $patient, Model $record): void
+    {
+        /** @var PhrMedicationFill $record */
+        $this->writer->release($record);
+    }
 }

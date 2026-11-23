@@ -176,6 +176,9 @@ final class AgentClinicalResourceCatalog
     /** The generic REST/OpenAPI/capabilities identifier for source retraction. */
     public const string RETRACT_OPERATION_ID = 'clinical.retract';
 
+    /** The generic REST/OpenAPI/capabilities identifier for deleting a record whoever wrote it. */
+    public const string DELETE_OPERATION_ID = 'clinical.delete';
+
     /** @return list<string> */
     public static function upsertOperationIds(): array
     {

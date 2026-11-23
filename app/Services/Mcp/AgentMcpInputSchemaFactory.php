@@ -6,6 +6,7 @@ use App\Http\Requests\AgentApi\ResolveClinicalRecordsRequest;
 use App\Models\PhrDocument;
 use App\Models\PhrHealthLog;
 use App\Models\PhrRespiratoryEvent;
+use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
@@ -73,6 +74,15 @@ final class AgentMcpInputSchemaFactory
         if ($definition->name === 'health_logs.create') {
             $schema['properties']['kind']['enum'] = PhrHealthLog::KINDS;
         }
+        // The fields each update may change, as the REST request declares them.
+        $updateRequests = [
+            'patients.update' => 'PatientUpdateRequest',
+            'health_logs.update' => 'HealthLogUpdateRequest',
+            'health_log_entries.update' => 'HealthLogEntryUpdateRequest',
+        ];
+        if (isset($updateRequests[$definition->name])) {
+            $schema['properties']['data'] = AgentApiResponseSchemaCatalog::schema($updateRequests[$definition->name])['properties']['data'];
+        }
         if ($definition->name === 'respiratory_events.list') {
             $schema['properties']['event_type']['enum'] = PhrRespiratoryEvent::EVENT_TYPES;
         }
@@ -102,7 +112,7 @@ final class AgentMcpInputSchemaFactory
         if (in_array($definition->name, ['clinical.list', 'clinical.get'], true)) {
             $schema['properties']['resource_type']['enum'] = AgentClinicalResourceCatalog::ids();
         }
-        if (in_array($definition->name, [AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID, AgentClinicalResourceCatalog::RETRACT_OPERATION_ID], true)) {
+        if (in_array($definition->name, [AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID, AgentClinicalResourceCatalog::RETRACT_OPERATION_ID, AgentClinicalResourceCatalog::DELETE_OPERATION_ID], true)) {
             $schema['properties']['resource_type']['enum'] = AgentClinicalResourceCatalog::writableIds();
         }
 

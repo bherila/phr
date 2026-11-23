@@ -169,6 +169,73 @@
             }
         },
         "/patients/{patient}/{resource}/{record}": {
+            "delete": {
+                "operationId": "clinical.delete",
+                "summary": "Delete one writable clinical record, whoever wrote it",
+                "description": "The browser's delete, for an agent: the record is soft-deleted (deleted_at), leaves every list, read, search, timeline and export, and changes.list reports it as a deleted tombstone, which is what this answers with. It reaches any record of the patient, whoever wrote it, a person in the browser included, and runs the same side effects as the browser delete (a prescription fill releases the medication only it kept alive). Read the record first and send its current version: a record changed since is refused with 409 and nothing is deleted. A record already deleted answers outcome unchanged, whatever version is sent. Requires clinical:read and clinical:delete, a scope granted apart from clinical:write. To withdraw a claim this connection made in error, use clinical.retract instead. Deleting a patient is not offered to agents.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:delete"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecordDeletionRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/WritableClinicalResource"
+                    },
+                    {
+                        "$ref": "#/components/parameters/RecordId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Record deleted, or already deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecordDeletionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
             "get": {
                 "operationId": "clinical.get",
                 "summary": "Get one core clinical record for an accessible patient",
@@ -448,7 +515,7 @@
             "post": {
                 "operationId": "clinical.retract",
                 "summary": "Withdraw a clinical record this connection wrote",
-                "description": "Marks a record as withdrawn by the integration that wrote it. This means the source is taking back a claim it made in error; it does NOT mean the record is absent from a later export. Institutions age data out past their own retention policies, so absence from a newer import is never a reason to retract. Scope is this connection's own import namespace: a record written by another client, or created in the browser, reports 404 rather than 403, because refusing by name would confirm another integration holds that identifier. Nothing is deleted, the identity stays reserved so an ordinary upsert cannot re-assert it, and the record stops appearing in lists, search, timeline, and clinical exports. Retracting an already-retracted record is settled as unchanged.",
+                "description": "Marks a record as withdrawn by the integration that wrote it. This means the source is taking back a claim it made in error; it does NOT mean the record is absent from a later export. Institutions age data out past their own retention policies, so absence from a newer import is never a reason to retract. Scope is this connection's own import namespace: a record written by another client, or created in the browser, reports 404 rather than 403, because refusing by name would confirm another integration holds that identifier. Nothing is deleted, the identity stays reserved so an ordinary upsert cannot re-assert it, and the record stops appearing in lists, search, timeline, and clinical exports. Retracting an already-retracted record is settled as unchanged. To remove a record this connection did not write, use clinical.delete.",
                 "security": [
                     {
                         "oauth2": [
@@ -1200,6 +1267,182 @@
                 }
             }
         },
+        "/patients/{patient}/documents/{document}": {
+            "delete": {
+                "operationId": "documents.delete",
+                "summary": "Delete one document, whoever added it",
+                "description": "The browser's delete, for an agent: the document is soft-deleted (deleted_at), leaves every list and read, and changes.list reports it as a deleted tombstone, which is what this answers with. It reaches any document of the patient, whoever added it. Read it first (documents.get) and send its current version: a document changed since is refused with 409. A document already deleted answers outcome unchanged, whatever version is sent. Requires documents:read and documents:delete, a scope granted apart from documents:write.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "documents:read",
+                            "documents:delete"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecordDeletionRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/DocumentId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Document deleted, or already deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecordDeletionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
+            "get": {
+                "operationId": "documents.get",
+                "summary": "Get privacy-minimized document metadata",
+                "security": [
+                    {
+                        "oauth2": [
+                            "documents:read"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/DocumentId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Document metadata",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "documents.update",
+                "summary": "Edit a document's title, type, date, summary, tags or note metadata",
+                "description": "Read the document first and supply its current version (documents.get). data holds only the fields to change; a null title, observed_at, summary or note field clears it, tags replaces the list, and relates_to sets or (null) removes the document's addendum or amendment link. The file, its source and its import identity never change. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review. Requires documents:read as well as documents:write.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "documents:read",
+                            "documents:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DocumentUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/DocumentId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Document updated or desired state already present",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentUpdateResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/documents/{document}/file": {
             "get": {
                 "operationId": "documents.download",
@@ -1306,118 +1549,6 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
-                    },
-                    "429": {
-                        "$ref": "#/components/responses/RateLimited"
-                    }
-                }
-            }
-        },
-        "/patients/{patient}/documents/{document}": {
-            "get": {
-                "operationId": "documents.get",
-                "summary": "Get privacy-minimized document metadata",
-                "security": [
-                    {
-                        "oauth2": [
-                            "documents:read"
-                        ]
-                    },
-                    {
-                        "apiToken": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/PatientId"
-                    },
-                    {
-                        "$ref": "#/components/parameters/DocumentId"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Document metadata",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/DocumentResponse"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthenticated"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/InsufficientScope"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    },
-                    "429": {
-                        "$ref": "#/components/responses/RateLimited"
-                    }
-                }
-            },
-            "patch": {
-                "operationId": "documents.update",
-                "summary": "Edit a document's title, type, date, summary, tags or note metadata",
-                "description": "Read the document first and supply its current version (documents.get). data holds only the fields to change; a null title, observed_at, summary or note field clears it, tags replaces the list, and relates_to sets or (null) removes the document's addendum or amendment link. The file, its source and its import identity never change. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review. Requires documents:read as well as documents:write.",
-                "security": [
-                    {
-                        "oauth2": [
-                            "documents:read",
-                            "documents:write"
-                        ]
-                    },
-                    {
-                        "apiToken": []
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/DocumentUpdateRequest"
-                            }
-                        }
-                    }
-                },
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/PatientId"
-                    },
-                    {
-                        "$ref": "#/components/parameters/DocumentId"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Document updated or desired state already present",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/DocumentUpdateResponse"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthenticated"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/InsufficientScope"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    },
-                    "409": {
-                        "$ref": "#/components/responses/Conflict"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/InvalidRequest"
                     },
                     "429": {
                         "$ref": "#/components/responses/RateLimited"
@@ -3331,6 +3462,73 @@
             }
         },
         "/patients/{patient}/health-logs/{healthLog}/entries/{entry}": {
+            "delete": {
+                "operationId": "health_log_entries.delete",
+                "summary": "Delete one health log entry, whoever recorded it",
+                "description": "The browser's delete, for an agent: the entry is removed outright, as the browser removes it (an entry has no deleted_at), so a repeat finds nothing and answers 404. Read it first (health_log_entries.get) and send its current version: an entry changed since is refused with 409. Requires clinical:read and clinical:delete.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:delete"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecordDeletionRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/HealthLogId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/HealthLogEntryId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Entry deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecordDeletionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
             "get": {
                 "operationId": "health_log_entries.get",
                 "summary": "Get one health log entry",
@@ -3374,6 +3572,73 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "health_log_entries.update",
+                "summary": "Partially update one health log entry",
+                "description": "Read the entry first (health_log_entries.get) and supply its current version. data holds only the fields to change, with the browser's rules: a null title, notes, intensity, tags or details clears it, tags replaces the list and details replaces the object. A stale or unknown version is rejected with 409 before anything is applied; an exact no-op answers outcome unchanged. Requires clinical:read as well as clinical:write.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/HealthLogEntryUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/HealthLogId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/HealthLogEntryId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Entry updated or desired state already present",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HealthLogEntryMutationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
                     },
                     "429": {
                         "$ref": "#/components/responses/RateLimited"
@@ -3423,6 +3688,136 @@
                     },
                     "201": {
                         "description": "Health log created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HealthLogMutationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/health-logs/{healthLog}": {
+            "delete": {
+                "operationId": "health_logs.delete",
+                "summary": "Delete one health log and its entries, whoever created it",
+                "description": "The browser's delete, for an agent: the log is removed outright with every entry in it, as the browser removes it (a log has no deleted_at), so a repeat finds nothing and answers 404. Read it first (clinical.get with resource_type health-logs) and send its current version: a log changed since is refused with 409. Requires clinical:read and clinical:delete.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:delete"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecordDeletionRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/HealthLogId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Health log deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecordDeletionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "health_logs.update",
+                "summary": "Partially update one health log",
+                "description": "Read the log first (clinical.get with resource_type health-logs) and supply its current version. data holds only the fields to change: name (unique for the patient), kind, description, archived_at (null restores an archived log). A stale or unknown version is rejected with 409 before anything is applied; an exact no-op answers outcome unchanged. Requires clinical:read as well as clinical:write.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/HealthLogUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/HealthLogId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Health log updated or desired state already present",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5327,6 +5722,67 @@
                         "$ref": "#/components/responses/RateLimited"
                     }
                 }
+            },
+            "patch": {
+                "operationId": "patients.update",
+                "summary": "Edit a patient's details",
+                "description": "The browser's patient edit, for an agent, on a patient the account owns or manages. Read the patient first (patients.get) and supply its current version. data holds only the fields to change: display_name (never empty), relationship, birth_date, sex_at_birth, notes; a null clears any but display_name. Real names are set only by a person in PHR. A stale or unknown version is rejected with 409 before anything is applied; an exact no-op answers outcome unchanged. Requires patients:read as well as patients:write. Deleting a patient is not offered to agents: it stays an owner-only workflow in PHR with a preview and a typed confirmation.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "patients:read",
+                            "patients:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatientUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Patient updated or desired state already present",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PatientUpdateResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
             }
         },
         "/patients/{patient}/procedures": {
@@ -5610,6 +6066,64 @@
             }
         },
         "/patients/{patient}/respiratory-events/batch": {
+            "delete": {
+                "operationId": "respiratory_events.delete",
+                "summary": "Delete a batch of respiratory device events",
+                "description": "The browser's batch delete, for an agent: up to 500 events, named by the client_event_uuid the device gave them, are removed outright, as the browser removes them. Each UUID answers deleted or not_found, so a repeated batch changes nothing. Device events carry no version; read them with respiratory_events.list first. Requires clinical:read and clinical:delete.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:delete"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RespiratoryEventDeleteRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Per-event deleted or not_found results",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RespiratoryEventDeleteResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
             "post": {
                 "operationId": "respiratory_events.ingest",
                 "summary": "Idempotently ingest a respiratory device event batch",
@@ -5939,12 +6453,14 @@
                         "scopes": {
                             "identity:read": "Read your account identity and granted scopes",
                             "patients:read": "List and read patients you can access",
-                            "patients:write": "Create new patients you own",
+                            "patients:write": "Create new patients you own and edit the details of patients you can manage",
                             "clinical:read": "Read clinical records for patients you can access",
                             "clinical:write": "Create and update clinical records you can manage",
+                            "clinical:delete": "Delete clinical records, health logs and device events you can manage, whoever added them",
                             "billing:read": "Read claim-level financial metadata and opaque patient identifiers, without document download",
                             "documents:read": "Read document metadata and download authorized files",
                             "documents:write": "Upload patient documents",
+                            "documents:delete": "Delete patient documents you can manage, whoever added them",
                             "imports:read": "Read import jobs and extraction results",
                             "imports:write": "Create and review import jobs",
                             "exports:read": "Read export and backup status and download results",
@@ -7051,7 +7567,7 @@
                     "version": {
                         "type": "string",
                         "pattern": "^[a-f0-9]{64}$",
-                        "description": "Present on agent-writable resource types and required to change an existing record."
+                        "description": "Present on agent-writable resource types and health logs, and required to change or delete an existing record."
                     },
                     "lifecycle": {
                         "type": "string",
@@ -12078,6 +12594,11 @@
                     },
                     "updated_at": {
                         "$ref": "#/components/schemas/LocalDateTime"
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "Present in health_log_entries.get and .list; required to update or delete the entry."
                     }
                 },
                 "additionalProperties": false
@@ -12182,6 +12703,7 @@
                     "patient_id",
                     "health_log_id",
                     "outcome",
+                    "version",
                     "data",
                     "receipt_only"
                 ],
@@ -12199,8 +12721,13 @@
                         "type": "string",
                         "enum": [
                             "created",
+                            "updated",
                             "unchanged"
                         ]
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
                     },
                     "data": {
                         "oneOf": [
@@ -12243,12 +12770,80 @@
                 },
                 "additionalProperties": false
             },
+            "HealthLogEntryUpdateRequest": {
+                "type": "object",
+                "required": [
+                    "expected_version",
+                    "data"
+                ],
+                "properties": {
+                    "expected_version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "data": {
+                        "type": "object",
+                        "minProperties": 1,
+                        "properties": {
+                            "occurred_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "title": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 255
+                            },
+                            "notes": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 10000
+                            },
+                            "intensity": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "minimum": 0,
+                                "maximum": 10
+                            },
+                            "tags": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "maxItems": 20,
+                                "uniqueItems": true,
+                                "items": {
+                                    "type": "string",
+                                    "maxLength": 50
+                                }
+                            },
+                            "details": {
+                                "type": [
+                                    "object",
+                                    "null"
+                                ],
+                                "maxProperties": 50,
+                                "additionalProperties": true
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            },
             "HealthLogMutationResponse": {
                 "type": "object",
                 "required": [
                     "resource_type",
                     "patient_id",
                     "outcome",
+                    "version",
                     "data",
                     "receipt_only"
                 ],
@@ -12263,8 +12858,13 @@
                         "type": "string",
                         "enum": [
                             "created",
+                            "updated",
                             "unchanged"
                         ]
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
                     },
                     "data": {
                         "oneOf": [
@@ -12279,6 +12879,55 @@
                     "receipt_only": {
                         "type": "boolean",
                         "description": "True when the caller lacks the matching read scope and data is a MutationReceipt rather than the full resource."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "HealthLogUpdateRequest": {
+                "type": "object",
+                "required": [
+                    "expected_version",
+                    "data"
+                ],
+                "properties": {
+                    "expected_version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "data": {
+                        "type": "object",
+                        "minProperties": 1,
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "meal",
+                                    "snack",
+                                    "symptom",
+                                    "custom"
+                                ]
+                            },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 1000
+                            },
+                            "archived_at": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
+                            }
+                        },
+                        "additionalProperties": false
                     }
                 },
                 "additionalProperties": false
@@ -15120,6 +15769,11 @@
                             "null"
                         ],
                         "description": "Present only in patients.get and patients.create responses; patients.list omits it."
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "Present in patients.get, patients.create and patients.update responses; required by patients.update."
                     }
                 },
                 "additionalProperties": false
@@ -15257,6 +15911,93 @@
                                 "$ref": "#/components/schemas/PatientBilling"
                             }
                         ]
+                    }
+                },
+                "additionalProperties": false
+            },
+            "PatientUpdateRequest": {
+                "type": "object",
+                "required": [
+                    "expected_version",
+                    "data"
+                ],
+                "properties": {
+                    "expected_version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "data": {
+                        "type": "object",
+                        "minProperties": 1,
+                        "properties": {
+                            "display_name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 255
+                            },
+                            "relationship": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 50
+                            },
+                            "birth_date": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date"
+                            },
+                            "sex_at_birth": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 50
+                            },
+                            "notes": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 10000
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            },
+            "PatientUpdateResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "version",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "patient"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "updated",
+                            "unchanged"
+                        ]
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/Patient"
                     }
                 },
                 "additionalProperties": false
@@ -15468,6 +16209,83 @@
                     },
                     "data": {
                         "$ref": "#/components/schemas/ReconciliationPlan"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "RecordDeletionRequest": {
+                "type": "object",
+                "required": [
+                    "expected_version"
+                ],
+                "properties": {
+                    "expected_version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "The version of the record the caller read and means to delete. Deleting is as consequential as changing, so it takes the same precondition."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "RecordDeletionResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "type": "string"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "health_log_id": {
+                        "type": "integer",
+                        "description": "On health_log_entries.delete: the log the entry was in."
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "deleted",
+                            "unchanged"
+                        ],
+                        "description": "unchanged: the record was already deleted."
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/RecordDeletionTombstone"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "RecordDeletionTombstone": {
+                "type": "object",
+                "description": "The deleted record as changes.list reports it from now on. A health log or entry is removed outright, so changes.list keeps no tombstone of it.",
+                "required": [
+                    "resource_type",
+                    "id",
+                    "patient_id",
+                    "change_type",
+                    "changed_at"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "change_type": {
+                        "const": "deleted"
+                    },
+                    "changed_at": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 },
                 "additionalProperties": false
@@ -15773,6 +16591,70 @@
                     },
                     "reason": {
                         "type": "string"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "RespiratoryEventDeleteRequest": {
+                "type": "object",
+                "required": [
+                    "uuids"
+                ],
+                "properties": {
+                    "uuids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 500,
+                        "items": {
+                            "type": "string",
+                            "maxLength": 64
+                        },
+                        "description": "The client_event_uuid of each event to delete."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "RespiratoryEventDeleteResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "deleted",
+                    "results"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "respiratory-event-batch"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "deleted": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "uuid",
+                                "status"
+                            ],
+                            "properties": {
+                                "uuid": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": [
+                                        "deleted",
+                                        "not_found"
+                                    ]
+                                }
+                            },
+                            "additionalProperties": false
+                        }
                     }
                 },
                 "additionalProperties": false

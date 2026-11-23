@@ -24,6 +24,13 @@
             "genai:work"
         ]
     },
+    "clinical.delete": {
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ],
+        "scope_rule": "all"
+    },
     "clinical.get": {
         "scopes": [
             "clinical:read"
@@ -112,6 +119,13 @@
         "scopes": [
             "documents:write"
         ]
+    },
+    "documents.delete": {
+        "scopes": [
+            "documents:read",
+            "documents:delete"
+        ],
+        "scope_rule": "all"
     },
     "documents.download": {
         "scopes": [
@@ -297,6 +311,13 @@
             "clinical:write"
         ]
     },
+    "health_log_entries.delete": {
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ],
+        "scope_rule": "all"
+    },
     "health_log_entries.get": {
         "scopes": [
             "clinical:read"
@@ -307,10 +328,31 @@
             "clinical:read"
         ]
     },
+    "health_log_entries.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
     "health_logs.create": {
         "scopes": [
             "clinical:write"
         ]
+    },
+    "health_logs.delete": {
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ],
+        "scope_rule": "all"
+    },
+    "health_logs.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
     },
     "identity.get": {
         "scopes": [
@@ -525,6 +567,13 @@
         ],
         "scope_rule": "any"
     },
+    "patients.update": {
+        "scopes": [
+            "patients:read",
+            "patients:write"
+        ],
+        "scope_rule": "all"
+    },
     "procedures.update": {
         "scopes": [
             "clinical:read",
@@ -559,6 +608,13 @@
         "scopes": [
             "genai:work"
         ]
+    },
+    "respiratory_events.delete": {
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ],
+        "scope_rule": "all"
     },
     "respiratory_events.ingest": {
         "scopes": [
