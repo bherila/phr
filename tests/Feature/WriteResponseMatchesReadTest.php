@@ -199,7 +199,7 @@ final class WriteResponseMatchesReadTest extends TestCase
     {
         $cases = [
             'patients' => ['agent-api.v1.patients.store', '/api/v1/patients/{id}', ['display_name' => 'Synthetic Agent Patient'], null],
-            'documents' => ['agent-api.v1.documents.store', '/api/v1/patients/{patient}/documents/{id}', ['external_id' => 'synthetic-document-001', 'document_type' => 'other'], null],
+            'documents' => ['agent-api.v1.documents.store', '/api/v1/patients/{patient}/documents/{id}', ['external_id' => 'synthetic-document-001', 'document_type' => 'other'], ['summary' => 'Synthetic summary']],
             'health logs' => ['agent-api.v1.health-logs.store', '/api/v1/patients/{patient}/health-logs/{id}', ['external_id' => 'synthetic-log-001', 'name' => 'Synthetic agent log', 'kind' => 'custom'], null],
             'health log entries' => ['agent-api.v1.health-log-entries.store', '/api/v1/patients/{patient}/health-logs/{healthLog}/entries/{id}', ['external_id' => 'synthetic-entry-001', 'occurred_at' => '2026-03-01T08:30:00Z'], null],
         ];
@@ -270,7 +270,8 @@ final class WriteResponseMatchesReadTest extends TestCase
             $this->travel(1)->seconds();
             $resource = explode('/', $url)[5];
             $patched = $this->patchJson("/api/v1/patients/{$patient->id}/{$resource}/{$id}", [
-                'expected_version' => $written['version'],
+                // A document carries its version inside data; clinical records also return it beside data.
+                'expected_version' => $written['version'] ?? $written['data']['version'],
                 'data' => $update,
             ])->assertOk()->json();
             $this->assertSameAsRead($this->agentRecord($patched), $read($id));
@@ -279,7 +280,8 @@ final class WriteResponseMatchesReadTest extends TestCase
 
     public function test_every_write_route_is_covered_or_excused(): void
     {
-        $covered = ['agent-api.v1.clinical.update' => true];
+        // The agent update routes are exercised by the agentWrites cases that carry a patch.
+        $covered = ['agent-api.v1.clinical.update' => true, 'agent-api.v1.documents.update' => true];
         foreach (self::browserWrites() as [$store, $update]) {
             $covered[$store] = true;
             $covered[$update] = true;
