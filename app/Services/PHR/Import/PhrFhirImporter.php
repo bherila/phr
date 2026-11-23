@@ -528,8 +528,9 @@ class PhrFhirImporter
      *
      * US Core sends a home medication as both resources. A statement and a community
      * request that are certainly the same medication (the statement is basedOn or
-     * derivedFrom the request, or they share the only RxNorm code) are one row: the
-     * statement's, with what the request adds where the statement says nothing. A
+     * derivedFrom the request alone, or they alone share an RxNorm code; see
+     * medicationPairs()) are one row: the statement's, with what the request adds
+     * where the statement says nothing. A
      * request that only may be one (the same name without a shared code, or one of
      * several) is written as its own row flagged possible_duplicate for a person, and
      * so is either resource when a stored row of the other kind has its name. The
@@ -550,9 +551,14 @@ class PhrFhirImporter
         if ($paired !== null) {
             $request = $this->resources[$paired];
             foreach ($this->medicationRecord($request, $this->externalId($request, $this->entryUrls[$paired] ?? null)) as $field => $value) {
-                if (! in_array($field, ['external_id', 'raw_text', 'review_flags'], true) && ($record[$field] ?? null) === null) {
-                    $record[$field] = $value;
+                if (in_array($field, ['external_id', 'raw_text', 'review_flags'], true) || ($record[$field] ?? null) !== null) {
+                    continue;
                 }
+                // The statement's own dosage text (its dose) already says it.
+                if ($field === 'frequency' && $value !== null && $value === ($record['dose'] ?? null)) {
+                    continue;
+                }
+                $record[$field] = $value;
             }
             $record['raw_text'] = json_encode([$resource, $request]);
         }
@@ -597,6 +603,15 @@ class PhrFhirImporter
             [$dose, $doseUnit] = [data_get($resource, 'dosage.0.text'), null];
         }
         [$asNeeded, $asNeededReason] = $this->asNeeded($dosage);
+        $route = $this->codeableText($dosage['route'] ?? null);
+        $frequency = $this->frequency($dosage);
+        $rate = $this->rate(data_get($dosage, 'doseAndRate.0'));
+        if ($isRequest && $dose === null && $route === null && $frequency === null && $rate === null) {
+            // An instruction only as text ("Take two tablets every evening") is how the
+            // medication is taken: kept as its frequency, which the export's dosage text
+            // reads back (#432). The column holds 100 characters; raw_text keeps it all.
+            $frequency = ($instruction = $this->text($dosage['text'] ?? null)) === null ? null : mb_substr($instruction, 0, 100);
+        }
 
         return [
             'external_id' => PhrMedicationCategory::scopedExternalId($externalId, $category),
@@ -610,15 +625,15 @@ class PhrFhirImporter
             ...($isRequest ? [
                 'dose_unit' => $doseUnit,
                 'rxnorm_code' => $this->codeForSystem($concept, 'rxnorm'),
-                'route' => $this->codeableText($dosage['route'] ?? null),
-                'frequency' => $this->frequency($dosage),
+                'route' => $route,
+                'frequency' => $frequency,
                 'prescriber_name' => $this->text(data_get($resource, 'requester.display')),
                 'reason_for_use' => $this->codeableText(data_get($resource, 'reasonCode.0')),
             ] : []),
             'category' => $category,
             'as_needed' => $asNeeded,
             'as_needed_reason' => $asNeededReason,
-            'rate' => $this->rate(data_get($dosage, 'doseAndRate.0')),
+            'rate' => $rate,
             'raw_text' => json_encode($resource),
         ];
     }
@@ -653,6 +668,15 @@ class PhrFhirImporter
      * position, `statement_of` the reverse, and `flagged` request position =>
      * the statement position it only may be.
      *
+     * Explicit links come first, across the whole bundle (#432): a statement that is
+     * basedOn or derivedFrom one request, which no other statement names, is that
+     * request, wherever either sits in the bundle. A statement naming several
+     * requests, or a request several statements name, pairs with none of them, and
+     * each such request is flagged. What names or is named is kept for its links;
+     * only the rest is then matched by RxNorm code, certainly when exactly one
+     * statement and one request share it. A request that is not certainly a
+     * statement is flagged with one it may be: one sharing its code, else its name.
+     *
      * @return array{request_of: array<int, int>, statement_of: array<int, int>, flagged: array<int, int>}
      */
     private function medicationPairs(): array
@@ -673,23 +697,46 @@ class PhrFhirImporter
         }
 
         $pairs = ['request_of' => [], 'statement_of' => [], 'flagged' => []];
-        foreach ($requests as $request) {
-            $free = array_values(array_filter($statements, static fn (int $statement): bool => ! isset($pairs['request_of'][$statement])));
-            $linked = array_values(array_filter($free, fn (int $statement): bool => $this->statementNames($statement, $request)));
-            $code = $this->codeForSystem($this->medicationConcept($this->resources[$request]), 'rxnorm');
-            $coded = $code === null ? [] : array_values(array_filter($free, fn (int $statement): bool => $this->codeForSystem($this->medicationConcept($this->resources[$statement]), 'rxnorm') === $code));
-            $name = $this->comparableName($this->resources[$request]);
-            $named = $name === null ? [] : array_values(array_filter($free, fn (int $statement): bool => $this->comparableName($this->resources[$statement]) === $name));
 
-            $certain = match (true) {
-                count($linked) === 1 => $linked[0],
-                $linked === [] && count($coded) === 1 => $coded[0],
-                default => null,
-            };
-            if ($certain !== null) {
-                $pairs['request_of'][$certain] = $request;
-                $pairs['statement_of'][$request] = $certain;
-            } elseif (($maybe = $linked[0] ?? $coded[0] ?? $named[0] ?? null) !== null) {
+        // request position => the statements naming it; statement position => the requests it names
+        $namedBy = [];
+        $names = [];
+        foreach ($requests as $request) {
+            foreach ($statements as $statement) {
+                if ($this->statementNames($statement, $request)) {
+                    $namedBy[$request][] = $statement;
+                    $names[$statement][] = $request;
+                }
+            }
+        }
+        foreach ($namedBy as $request => $naming) {
+            if (count($naming) === 1 && count($names[$naming[0]]) === 1) {
+                $pairs['request_of'][$naming[0]] = $request;
+                $pairs['statement_of'][$request] = $naming[0];
+            } else {
+                $pairs['flagged'][$request] = $naming[0];
+            }
+        }
+
+        $codes = [];
+        foreach ([...$statements, ...$requests] as $position) {
+            $codes[$position] = $this->codeForSystem($this->medicationConcept($this->resources[$position]), 'rxnorm');
+        }
+        // Of these positions, those whose RxNorm code is this one.
+        $sharing = static fn (array $positions, ?string $code): array => $code === null ? [] : array_values(array_filter($positions, static fn (int $position): bool => $codes[$position] === $code));
+        $openStatements = array_values(array_filter($statements, static fn (int $statement): bool => ! isset($names[$statement])));
+        $openRequests = array_values(array_filter($requests, static fn (int $request): bool => ! isset($namedBy[$request])));
+        foreach ($openRequests as $request) {
+            $coded = $sharing($openStatements, $codes[$request]);
+            if (count($coded) === 1 && count($sharing($openRequests, $codes[$request])) === 1) {
+                $pairs['request_of'][$coded[0]] = $request;
+                $pairs['statement_of'][$request] = $coded[0];
+
+                continue;
+            }
+            $name = $this->comparableName($this->resources[$request]);
+            $named = $name === null ? [] : array_values(array_filter($statements, fn (int $statement): bool => $this->comparableName($this->resources[$statement]) === $name));
+            if (($maybe = $coded[0] ?? $sharing($statements, $codes[$request])[0] ?? $named[0] ?? null) !== null) {
                 $pairs['flagged'][$request] = $maybe;
             }
         }

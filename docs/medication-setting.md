@@ -11,7 +11,7 @@ the patient's home medications.
 | `as_needed`, `as_needed_reason` | Taken only as needed, and for what ("pain", "temperature > 38.0 C"). Null when the source did not say. |
 | `brand_name` | The brand; a medication a prescription fill creates takes the fill's. |
 | `rate` | A continuous infusion's rate as it reads, "75 mL/h". |
-| `started_at`, `ended_at` | An order's times, beside `started_on` / `ended_on`, when the source gives a time. An `ended_at` that has passed ends the medication like `ended_on`. |
+| `started_at`, `ended_at` | An order's times, beside `started_on` / `ended_on`, when the source gives a time. The end that has passed ends the medication: `ended_at` when there is one, so an order ending this evening is active until then, else `ended_on` from its first moment. |
 | `review_flags` | Why a person should look closely at an imported row: `possible_duplicate` with the `external_id` of the medication it may be. Not writable through the API. |
 
 The migration makes existing rows home medications where they are one: a row a person
@@ -57,7 +57,11 @@ hospital list's scoped id: those are the rows `PhrCcdaMisroutedMedications` retr
 (`asNeededBoolean`, or `asNeededCodeableConcept` and its text as the reason), the rate
 (`doseAndRate.rateQuantity`, `rateRatio` or `rateRange`), and for a request the dose,
 route, timing ("every 6 h", "2 times every 1 d") and `boundsPeriod`, else `authoredOn` and
-a `boundsDuration` in days. A request's `encounter` stays in `raw_text`, which keeps the
+a `boundsDuration` in days. A request whose dosage is only text ("Take two tablets every
+evening": no dose, route, timing or rate) keeps the text as its `frequency`, which the
+export's dosage text reads back. A statement's `category` is read whether it is sent as
+R4's single CodeableConcept or as a list, and so is a request's. A request's `encounter`
+stays in `raw_text`, which keeps the
 resource as sent, for the visit link (#411). Statuses map to the app's (`stopped`,
 `cancelled` and `not-taken` are `discontinued`, `on-hold` and `draft` `on_hold`);
 `entered-in-error` is skipped.
@@ -65,13 +69,18 @@ resource as sent, for the visit link (#411). Statuses map to the app's (`stopped
 US Core sends a home medication as both a statement and a request with category
 community. They have different ids, so in one bundle:
 
-- a statement that is `basedOn` or `derivedFrom` the request, or the only statement with
-  the request's RxNorm code, is the same medication: one row, the statement's, with what
-  the request adds where the statement says nothing (RxNorm, prescriber, route, as-needed),
-  and `raw_text` holding both resources;
-- a request that only may be one (the same name without a shared code, or one of several
-  statements with its code) is written as its own row with `review_flags`
-  `possible_duplicate` naming the statement, for a person to keep one and reject the other;
+- a statement that is `basedOn` or `derivedFrom` the request, and names no other request
+  that no other statement names, is the same medication: one row, the statement's, with
+  what the request adds where the statement says nothing (RxNorm, prescriber, route,
+  as-needed), and `raw_text` holding both resources. These explicit links are resolved
+  across the whole bundle first, so a request earlier in the bundle with the same RxNorm
+  code never takes the statement from the request it names;
+- among the statements and requests no link names, a statement and a request that alone
+  share an RxNorm code are the same medication in the same way;
+- a request that only may be one (named by a statement that names several, one of several
+  named by a statement, one of several sharing a code, or the same name without a shared
+  code) is written as its own row with `review_flags` `possible_duplicate` naming the
+  statement, for a person to keep one and reject the other;
 - a statement or request whose counterpart of the other kind was imported from another
   bundle, under the same name, is flagged the same way.
 
@@ -80,8 +89,9 @@ community. They have different ids, so in one bundle:
 `discontinued` `stopped`; the dates or times are the dosage's `boundsPeriod` and the start
 the `authoredOn`; the rate is `dosageInstruction.doseAndRate.rateQuantity` (UCUM) when it
 is a number and a unit, else only in the dosage text. A home medication stays a
-`MedicationStatement`, with the statement system's `community` (an unknown one has no
-category). An as-needed medication carries `asNeededCodeableConcept` with its reason, or
+`MedicationStatement`, with the statement system's `community` as its one `category`
+CodeableConcept (R4's 0..1; a request's `category` is a list), and an unknown one has no
+category. An as-needed medication carries `asNeededCodeableConcept` with its reason, or
 `asNeededBoolean`.
 
 ## C-CDA

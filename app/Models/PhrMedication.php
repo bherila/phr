@@ -117,15 +117,19 @@ class PhrMedication extends Model
      * date still ahead, such as the last day of a course, takes effect by itself. The stored
      * value is untouched, so taking the date away restores it. "completed" is also the FHIR code.
      *
+     * The end's time, when the source gave one, is when it ended: an order ending at six this
+     * evening is still running at noon, though its date has arrived (#432). A date alone has
+     * arrived from its first moment.
+     *
      * @return Attribute<string|null, never>
      */
     protected function status(): Attribute
     {
         return Attribute::get(function (?string $value): ?string {
-            $endedOn = $this->ended_on ?? $this->ended_at;
+            $ended = $this->ended_at ?? $this->ended_on;
             $stillRunning = $value === null || in_array($value, ['active', 'on_hold'], true);
 
-            return $stillRunning && $endedOn !== null && ! $endedOn->isFuture() ? 'completed' : $value;
+            return $stillRunning && $ended !== null && ! $ended->isFuture() ? 'completed' : $value;
         });
     }
 

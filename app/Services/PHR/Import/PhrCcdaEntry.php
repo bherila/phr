@@ -19,6 +19,11 @@ namespace App\Services\PHR\Import;
  * - `skip`: an entry of the section's kind that is deliberately not a record
  *   (for example a planned immunization). It still counts as a structured entry,
  *   so the section does not fall back to its narrative table.
+ * - `narrativeRecord`: the record an entry nothing names is read as from its
+ *   row, when the reader knows more than the row says. A medication activity
+ *   inside a Discharge Medication act is the discharge list's, with its scoped
+ *   id, whichever section holds it (#432); the section's own reading of the row
+ *   would make it a home medication.
  */
 final readonly class PhrCcdaEntry
 {
@@ -26,6 +31,7 @@ final readonly class PhrCcdaEntry
      * @param  array<string, mixed>|null  $record
      * @param  list<string>|null  $narrativeCells
      * @param  list<string>  $sourceIds
+     * @param  array<string, mixed>|null  $narrativeRecord
      */
     public function __construct(
         public string $jobType,
@@ -34,5 +40,6 @@ final readonly class PhrCcdaEntry
         public ?string $narrativeId = null,
         public array $sourceIds = [],
         public bool $skip = false,
+        public ?array $narrativeRecord = null,
     ) {}
 }

@@ -247,7 +247,8 @@ class PhrFhirExporter
      * the list the patient went home with is a MedicationRequest (intent order) with
      * its medicationrequest-category; a home medication, or one whose setting is
      * unknown, stays a MedicationStatement, a home one with the statement category
-     * system's community. Statuses use each resource's codes.
+     * system's community. Statuses use each resource's codes. In R4 a statement's
+     * category is one CodeableConcept (0..1) and a request's a list (0..*) (#432).
      *
      * @return array<string, mixed>
      */
@@ -298,7 +299,7 @@ class PhrFhirExporter
                 default => 'active',
             },
             'intent' => 'order',
-            'category' => $this->category(PhrMedicationCategory::REQUEST_SYSTEM, (string) $category),
+            'category' => [$this->category(PhrMedicationCategory::REQUEST_SYSTEM, (string) $category)],
             'medicationCodeableConcept' => $concept,
             'encounter' => $encounter,
             'subject' => $this->patientReference($medication->patient_id),
@@ -310,11 +311,13 @@ class PhrFhirExporter
     }
 
     /**
-     * @return list<array{coding: list<array{system: string, code: string, display: string}>}>
+     * One category CodeableConcept.
+     *
+     * @return array{coding: list<array{system: string, code: string, display: string}>}
      */
     private function category(string $system, string $code): array
     {
-        return [['coding' => [['system' => $system, 'code' => $code, 'display' => $code]]]];
+        return ['coding' => [['system' => $system, 'code' => $code, 'display' => $code]]];
     }
 
     /**

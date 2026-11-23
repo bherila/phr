@@ -206,8 +206,10 @@ final class PhrMedicationSettingTest extends TestCase
         }
         $this->assertCount(11, $byName);
         $statement = $byName['MedicationStatement lisinopril'];
-        $this->assertSame([['coding' => [['system' => self::STATEMENT_CATEGORY, 'code' => 'community', 'display' => 'community']]]], $statement['category']);
+        // R4: MedicationStatement.category is 0..1 CodeableConcept, MedicationRequest.category 0..* (#432).
+        $this->assertSame(['coding' => [['system' => self::STATEMENT_CATEGORY, 'code' => 'community', 'display' => 'community']]], $statement['category']);
         $saline = $byName['MedicationRequest sodium chloride 0.9%'];
+        $this->assertSame([['coding' => [['system' => self::REQUEST_CATEGORY, 'code' => 'inpatient', 'display' => 'inpatient']]]], $saline['category']);
         $this->assertSame(['order', 'active', 'inpatient', self::REQUEST_CATEGORY], [$saline['intent'], $saline['status'], $saline['category'][0]['coding'][0]['code'], $saline['category'][0]['coding'][0]['system']]);
         $this->assertSame(['value' => 75, 'unit' => 'mL/h', 'system' => 'http://unitsofmeasure.org', 'code' => 'mL/h'], $saline['dosageInstruction'][0]['doseAndRate'][0]['rateQuantity']);
         $this->assertSame('on-hold', $byName['MedicationRequest ceftriaxone 1 g']['status']);
@@ -225,6 +227,172 @@ final class PhrMedicationSettingTest extends TestCase
         $this->assertCount(3, $this->names($copy, 'discharge'));
         $this->assertSame('75 mL/h', $this->medication($copy, 'inpatient', 'sodium chloride 0.9%')->rate);
         $this->assertSame('on_hold', $this->medication($copy, 'inpatient', 'ceftriaxone 1 g')->status);
+    }
+
+    public function test_a_statement_s_category_is_read_as_one_concept_or_as_a_list(): void
+    {
+        $patient = $this->patient();
+        $concept = ['coding' => [['system' => self::STATEMENT_CATEGORY, 'code' => 'community']]];
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            // R4's shape, and the list a source written against later versions (or PHR before #432) sends.
+            $this->entry([...$this->statement('ms-single', 'synthetic single', null), 'category' => $concept]),
+            $this->entry([...$this->statement('ms-list', 'synthetic list', null), 'category' => [$concept]]),
+            // A request sent with one concept rather than R4's list is read too.
+            $this->entry([...$this->request('mr-single', 'discharge', 'synthetic discharge', null), 'category' => ['coding' => [['system' => self::REQUEST_CATEGORY, 'code' => 'discharge']]]]),
+        ]];
+
+        app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+
+        $this->assertSame(['synthetic single', 'synthetic list'], $this->names($patient, 'community'));
+        $this->assertSame(['synthetic discharge'], $this->names($patient, 'discharge'));
+    }
+
+    public function test_a_statement_s_explicit_link_is_kept_for_its_request_before_any_code_only_match(): void
+    {
+        $patient = $this->patient();
+        // A comes first and shares the RxNorm code, but the statement names B.
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            $this->entry($this->request('mr-a', 'community', 'lisinopril', '9994131', ['doseAndRate' => [['doseQuantity' => ['value' => 5, 'unit' => 'mg']]]])),
+            $this->entry([...$this->statement('ms-lisinopril', 'lisinopril', '9994131'), 'basedOn' => [['reference' => 'MedicationRequest/mr-b']]]),
+            $this->entry([...$this->request('mr-b', 'community', 'lisinopril', '9994131', ['doseAndRate' => [['doseQuantity' => ['value' => 10, 'unit' => 'mg']]]]), 'requester' => ['display' => 'Synthetic prescriber B']]),
+        ]];
+
+        $result = app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+
+        $this->assertSame(2, $result->created);
+        $statement = PhrMedication::query()->where('patient_id', $patient->id)->where('external_id', 'MedicationStatement/ms-lisinopril')->sole();
+        $this->assertSame(['Synthetic prescriber B', null], [$statement->prescriber_name, $statement->review_flags]);
+        $this->assertSame(['ms-lisinopril', 'mr-b'], array_column(json_decode((string) $statement->raw_text, true), 'id'));
+        $other = PhrMedication::query()->where('patient_id', $patient->id)->where('external_id', 'MedicationRequest/mr-a')->sole();
+        $this->assertSame(['5', 'possible_duplicate', 'MedicationStatement/ms-lisinopril'], [$other->dose, $other->review_flags[0]['code'] ?? null, $other->review_flags[0]['external_id'] ?? null]);
+    }
+
+    public function test_ambiguous_statement_and_request_pairs_stay_separate_and_flagged(): void
+    {
+        $patient = $this->patient();
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            // One statement naming two requests: neither is certainly it.
+            $this->entry([...$this->statement('ms-metformin', 'metformin', '9994132'), 'derivedFrom' => [['reference' => 'MedicationRequest/mr-metformin-1'], ['reference' => 'MedicationRequest/mr-metformin-2']]]),
+            $this->entry($this->request('mr-metformin-1', 'community', 'metformin', '9994132')),
+            $this->entry($this->request('mr-metformin-2', 'community', 'metformin', '9994132')),
+            // Two requests sharing one statement's code: the code is not the only one.
+            $this->entry($this->statement('ms-atorvastatin', 'atorvastatin', '9994151')),
+            $this->entry($this->request('mr-atorvastatin-1', 'community', 'atorvastatin', '9994151')),
+            $this->entry($this->request('mr-atorvastatin-2', 'community', 'atorvastatin', '9994151')),
+        ]];
+
+        $result = app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+
+        $this->assertSame(6, $result->created);
+        $flags = PhrMedication::query()->where('patient_id', $patient->id)->orderBy('id')->get()
+            ->mapWithKeys(fn (PhrMedication $row): array => [$row->external_id => $row->review_flags[0]['external_id'] ?? null])->all();
+        $this->assertSame([
+            'MedicationStatement/ms-metformin' => null,
+            'MedicationRequest/mr-metformin-1' => 'MedicationStatement/ms-metformin',
+            'MedicationRequest/mr-metformin-2' => 'MedicationStatement/ms-metformin',
+            'MedicationStatement/ms-atorvastatin' => null,
+            'MedicationRequest/mr-atorvastatin-1' => 'MedicationStatement/ms-atorvastatin',
+            'MedicationRequest/mr-atorvastatin-2' => 'MedicationStatement/ms-atorvastatin',
+        ], $flags);
+    }
+
+    public function test_an_order_ending_later_today_is_still_active_and_a_date_only_end_today_has_ended(): void
+    {
+        $patient = $this->patient(); // now is 2026-02-13 12:00
+        $order = fn (string $name, array $end): PhrMedication => PhrMedication::query()->create([
+            'patient_id' => $patient->id, 'user_id' => $patient->owner_user_id, 'name' => $name, 'category' => 'inpatient',
+            'status' => 'active', 'review_status' => PhrReviewStatus::CONFIRMED, 'started_on' => '2026-02-10', ...$end,
+        ]);
+
+        $tonight = $order('synthetic tonight', ['ended_on' => '2026-02-13', 'ended_at' => '2026-02-13 18:00:00']);
+        $thisMorning = $order('synthetic this morning', ['ended_on' => '2026-02-13', 'ended_at' => '2026-02-13 08:00:00']);
+        $today = $order('synthetic today', ['ended_on' => '2026-02-13']);
+
+        $this->assertSame(['active', 'completed', 'completed'], [$tonight->fresh()?->status, $thisMorning->fresh()?->status, $today->fresh()?->status]);
+        $statuses = [];
+        foreach ($this->fhirExport($patient)['entry'] as $entry) {
+            if (($entry['resource']['resourceType'] ?? null) === 'MedicationRequest') {
+                $statuses[$entry['resource']['medicationCodeableConcept']['text']] = $entry['resource']['status'];
+            }
+        }
+        $this->assertSame('active', $statuses['synthetic tonight']);
+        $this->assertSame('completed', $statuses['synthetic this morning']);
+    }
+
+    public function test_a_request_s_text_only_dosage_is_kept_and_round_trips_through_export(): void
+    {
+        $patient = $this->patient();
+        $sig = 'Take two tablets every evening';
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            $this->entry($this->request('mr-text', 'discharge', 'synthetic evening tablet', null, ['text' => $sig])),
+            // A statement and the request it is based on, saying the same: the statement's text is kept once.
+            $this->entry([...$this->statement('ms-text', 'synthetic home tablet', null, ['text' => $sig]), 'basedOn' => [['reference' => 'MedicationRequest/mr-home-text']]]),
+            $this->entry($this->request('mr-home-text', 'community', 'synthetic home tablet', null, ['text' => $sig])),
+        ]];
+
+        app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+
+        $request = $this->medication($patient, 'discharge', 'synthetic evening tablet');
+        $this->assertSame([null, null, null, $sig], [$request->dose, $request->dose_unit, $request->route, $request->frequency]);
+        $home = $this->medication($patient, 'community', 'synthetic home tablet');
+        $this->assertSame([$sig, null], [$home->dose, $home->frequency]);
+
+        PhrMedication::query()->where('patient_id', $patient->id)->update(['review_status' => PhrReviewStatus::CONFIRMED]);
+        $exported = $this->fhirExport($patient);
+        $texts = [];
+        foreach ($exported['entry'] as $entry) {
+            $resource = $entry['resource'];
+            if (in_array($resource['resourceType'], ['MedicationStatement', 'MedicationRequest'], true)) {
+                $texts[$resource['resourceType']] = ($resource['dosageInstruction'] ?? $resource['dosage'])[0]['text'] ?? null;
+            }
+        }
+        $this->assertSame(['MedicationRequest' => $sig, 'MedicationStatement' => $sig], $texts);
+
+        $copy = $this->patient('Pat Example Copy');
+        app(PhrFhirImporter::class)->importBundle($exported, $copy, $copy->owner_user_id);
+        $this->assertSame($sig, $this->medication($copy, 'discharge', 'synthetic evening tablet')->frequency);
+        $this->assertSame($sig, $this->medication($copy, 'community', 'synthetic home tablet')->dose);
+    }
+
+    public function test_a_narrative_only_discharge_entry_inside_the_home_section_keeps_its_list_and_scoped_id(): void
+    {
+        $patient = $this->patient();
+        // Two identical table rows: one a home activity, one a Discharge Medication act's, and
+        // neither activity names its product, so both are read from their row.
+        $activity = static fn (string $row): string => <<<XML
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16"/>
+              <text><reference value="#{$row}"/></text>
+              <consumable><manufacturedProduct><manufacturedMaterial><code nullFlavor="UNK"/></manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+            XML;
+        $home = $activity('med-home');
+        $discharge = $activity('med-discharge');
+
+        $result = $this->importCcda($this->ccdaSectionDocument(<<<XML
+            <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
+            <code code="10160-0" codeSystem="2.16.840.1.113883.6.1"/>
+            <title>Medications</title>
+            <text><table>
+              <thead><tr><th>Medication</th><th>Dose</th><th>Frequency</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr ID="med-home"><td>synthetic narrative tablet</td><td>5 mg</td><td>daily</td><td>active</td></tr>
+                <tr ID="med-discharge"><td>synthetic narrative tablet</td><td>5 mg</td><td>daily</td><td>active</td></tr>
+              </tbody>
+            </table></text>
+            <entry>{$home}</entry>
+            <entry>
+              <act classCode="ACT" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.35" extension="2016-03-01"/>
+                <entryRelationship typeCode="SUBJ">{$discharge}</entryRelationship>
+              </act>
+            </entry>
+            XML), $patient);
+
+        $this->assertSame(2, $result->created);
+        $id = PhrMedication::query()->where('patient_id', $patient->id)->where('category', 'community')->sole()->external_id;
+        $this->assertSame('discharge:'.$id, $this->medication($patient, 'discharge', 'synthetic narrative tablet')->external_id);
+        $this->assertSame(['5 mg', 'daily'], [$this->medication($patient, 'discharge', 'synthetic narrative tablet')->dose, $this->medication($patient, 'discharge', 'synthetic narrative tablet')->frequency]);
     }
 
     public function test_the_ccd_lists_only_home_medications_in_its_medications_section_and_the_discharge_list_in_its_own(): void
