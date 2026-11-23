@@ -3,10 +3,17 @@
 namespace App\Services\PHR\Import;
 
 use App\Models\PhrDocument;
+use App\Models\PhrLabResult;
+use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
+use App\Models\PhrPatientVital;
+use App\Models\PhrProcedure;
+use App\Services\PHR\Encounters\PhrEncounterLinks;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
@@ -14,6 +21,9 @@ use InvalidArgumentException;
 class PhrCcdaImporter
 {
     private const string IMPORT_SOURCE = 'ccda';
+
+    /** The Continuity of Care Document template: a longitudinal summary, not one encounter's record. */
+    private const string CCD_TEMPLATE = '2.16.840.1.113883.10.20.22.1.2';
 
     /** The record source for rows read from a stored document, a PhrDocument::SOURCES value. */
     private const string RECORD_SOURCE = 'ccda_import';
@@ -24,6 +34,7 @@ class PhrCcdaImporter
         private PhrCcdaLegacyRows $legacyRows,
         private PhrRecordAttributeMapper $attributeMapper,
         private PhrCcdaMisroutedMedications $misroutedMedications,
+        private PhrEncounterLinks $encounterLinks,
     ) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
@@ -120,10 +131,82 @@ class PhrCcdaImporter
     private function readXml(DOMXPath $xpath, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
         $xml = new PhrCcdaXml($xpath);
-        $catalog = new PhrCcdaSectionCatalog($xml);
-        $result = new PhrImportResult;
         // The encounter the document is about, until an Encounter Activity with its id claims it.
         $header = (new PhrCcdaEncounterActivities($xml))->header();
+        $headerExternalId = is_string($header['external_id'] ?? null) ? $header['external_id'] : null;
+
+        [$result, $written] = $this->structuredImporter->collectingWritten(fn (): PhrImportResult => $this->readSections($xpath, $xml, $patient, $actorUserId, $header));
+        if ($headerExternalId !== null) {
+            $result->merge($this->linkToEncounter($xml, (int) $patient->id, $headerExternalId, $written));
+        }
+
+        return $result;
+    }
+
+    /**
+     * A document with an encompassingEncounter is that encounter's (#411): the lab results,
+     * vitals, procedures and medications read from it are linked to its visit. Not a CCD,
+     * whose header encounter describes when a longitudinal summary was made rather than
+     * where its history was recorded. A dated result, vital or procedure the document puts
+     * outside the encounter's period is not linked; neither is a record already on another
+     * encounter.
+     *
+     * @param  list<Model>  $written
+     */
+    private function linkToEncounter(PhrCcdaXml $xml, int $patientId, string $headerExternalId, array $written): PhrImportResult
+    {
+        $result = new PhrImportResult;
+        $visit = null;
+        foreach ($written as $model) {
+            if ($model instanceof PhrOfficeVisit && $model->external_id === $headerExternalId) {
+                $visit = $model;
+            }
+        }
+        if ($visit === null || $xml->first('/*[local-name()="ClinicalDocument"]/*[local-name()="templateId"][@root="'.self::CCD_TEMPLATE.'"]') !== null) {
+            return $result;
+        }
+
+        [$start, $end] = $xml->period($xml->first('/*[local-name()="ClinicalDocument"]/*[local-name()="componentOf"]/*[local-name()="encompassingEncounter"]/*[local-name()="effectiveTime"]'));
+        $from = $start === null ? null : Carbon::parse(substr($start, 0, 10))->subDay()->toDateString();
+        $to = $end === null ? null : Carbon::parse(substr($end, 0, 10))->addDay()->toDateString();
+        $outside = 0;
+        $kept = 0;
+        foreach ($written as $model) {
+            $type = PhrEncounterLinks::typeForModel($model);
+            if ($type === null || $type === 'document') {
+                continue;
+            }
+            $date = match (true) {
+                $model instanceof PhrLabResult => $model->collection_datetime ?? $model->result_datetime,
+                $model instanceof PhrPatientVital => $model->observed_at ?? $model->vital_date,
+                $model instanceof PhrProcedure => $model->performed_at ?? $model->performed_on,
+                default => null,
+            };
+            $day = $date?->toDateString();
+            if ($day !== null && (($from !== null && $day < $from) || ($to !== null && $day > $to))) {
+                $outside++;
+
+                continue;
+            }
+            if (! $this->encounterLinks->linkIfFree($patientId, (int) $visit->id, $type, (int) $model->getKey())) {
+                $kept++;
+            }
+        }
+        if ($outside > 0) {
+            $result->warn(sprintf('%d record(s) are dated outside the document\'s encounter and were not linked to it.', $outside));
+        }
+        if ($kept > 0) {
+            $result->warn(sprintf('%d record(s) already belong to another encounter and kept it.', $kept));
+        }
+
+        return $result;
+    }
+
+    /** @param  array<string, mixed>|null  $header */
+    private function readSections(DOMXPath $xpath, PhrCcdaXml $xml, PhrPatient $patient, int $actorUserId, ?array $header): PhrImportResult
+    {
+        $catalog = new PhrCcdaSectionCatalog($xml);
+        $result = new PhrImportResult;
 
         foreach ($xpath->query('//*[local-name()="section"]') ?: [] as $section) {
             if (! $section instanceof DOMElement) {

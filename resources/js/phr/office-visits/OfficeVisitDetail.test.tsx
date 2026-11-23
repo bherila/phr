@@ -113,6 +113,38 @@ describe('OfficeVisitDetail', () => {
     expect(screen.getByText(/Synthetic pneumonia \(J18\.9\)/)).toBeInTheDocument()
   })
 
+  it('lists the records made during a stay, grouped by kind', async () => {
+    const stay = {
+      ...VISIT,
+      linked_records: {
+        lab_results: [{ id: 5, name: 'Creatinine', value: '1.8', unit: 'mg/dL', abnormal_flag: 'H', observed_at: '2026-02-11 06:00:00' }],
+        vitals: [],
+        medications: [],
+        procedures: [{ id: 6, name: 'Synthetic chest radiograph', performed_on: '2026-02-10', status: 'completed' }],
+        documents: [{ id: 7, title: 'Daily Progress Note', document_type: 'progress_note' }],
+      },
+    }
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: stay, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Records from this visit' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Lab results' })).toBeInTheDocument()
+    expect(screen.getByText('Creatinine')).toBeInTheDocument()
+    expect(screen.getByText(/1\.8 mg\/dL · H/)).toBeInTheDocument()
+    expect(screen.getByText('Synthetic chest radiograph')).toBeInTheDocument()
+    expect(screen.getByText('Daily Progress Note')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Vitals' })).not.toBeInTheDocument()
+  })
+
+  it('says when no records are linked to a visit', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: VISIT, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByText('No records are linked to this visit.')).toBeInTheDocument()
+  })
+
   it('leaves out encounter facts an office visit does not state', async () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: VISIT, can_manage: false }))
 

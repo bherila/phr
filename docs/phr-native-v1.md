@@ -75,6 +75,16 @@ preview re-stamps or rewrites it, re-verifying its target. Projection resume sta
 in the excluded `checkpoint_json`, so the first preview after a restore re-projects,
 converging on the restored rows.
 
+## Encounter links
+
+`phr_office_visit_documents`, `phr_office_visit_lab_results`, `phr_office_visit_vitals`,
+`phr_office_visit_medications` and `phr_office_visit_procedures` (#411) link the records
+made during an encounter to its visit. They follow both parents in catalog order. Each
+is unique on its record column (a record belongs to at most one encounter), so a created
+link whose already-present record is linked under another identity is a conflict. They
+are the `encounter_links` generation: an archive written before them restores with no
+links.
+
 ## Archives older than a table
 
 EOB corrections are patient-owned immutable history in `phr_eob_corrections` and
@@ -130,7 +140,8 @@ bridge block restore; deterministic virtual identities alone establish no attrib
 Schema version 1 stays 1 when a table is added. The reader requires the manifest's
 table set to equal the catalog, except that a table generation added after v1 shipped
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI
-preservation tables, then `ehi_evidence`, the seven evidence and review tables) may be
+preservation tables, then `ehi_evidence`, the seven evidence and review tables, through
+`encounter_links`, the five encounter link tables) may be
 wholly absent, in which case it reads as empty. Generations are ordered: an archive may
 lack a generation only if it also lacks every later one, so pre-EHI and M1-era archives
 restore. Part of a generation, a later generation without an earlier one, a missing

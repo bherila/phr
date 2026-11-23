@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\AgentDicomUploadController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentDocumentUploadController;
+use App\Http\Controllers\Api\V1\AgentEncounterController;
 use App\Http\Controllers\Api\V1\AgentEobController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
 use App\Http\Controllers\Api\V1\AgentExportController;
@@ -223,6 +224,15 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->whereNumber(['patient', 'fill'])->middleware('throttle:agent-api');
         Route::operation('medication_fills.answer_eob_link', [AgentFillEobLinkController::class, 'answer'])
             ->whereNumber(['patient', 'fill'])->middleware('throttle:agent-api');
+
+        // The records made during an encounter (#411).
+        Route::operation('office_visits.link_record', [AgentEncounterController::class, 'link'])
+            ->whereNumber(['patient', 'visit'])->middleware('throttle:agent-api');
+        Route::operation('office_visits.unlink_record', [AgentEncounterController::class, 'unlink'])
+            ->whereNumber(['patient', 'visit', 'record'])->whereIn('type', ['document', 'lab-result', 'vital', 'medication', 'procedure'])
+            ->middleware('throttle:agent-api');
+        Route::operation('office_visits.get_stay', [AgentEncounterController::class, 'stay'])
+            ->whereNumber(['patient', 'visit'])->middleware('throttle:agent-api');
 
         Route::operation('imports.list', [AgentImportController::class, 'index'])
             ->whereNumber('patient')->middleware('throttle:agent-api');

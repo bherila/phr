@@ -163,6 +163,43 @@ final class PhrNativeBackupCatalog
                     'eob_id' => self::record('phr_eobs', false),
                 ],
             ],
+            // The records made during an encounter (#411), after the visits and the
+            // record tables they join: restore inserts in this order.
+            'phr_office_visit_documents' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                    'document_id' => self::record('phr_documents', false),
+                ],
+            ],
+            'phr_office_visit_lab_results' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                    'lab_result_id' => self::record('phr_lab_results', false),
+                ],
+            ],
+            'phr_office_visit_vitals' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                    'vital_id' => self::record('phr_patient_vitals', false),
+                ],
+            ],
+            'phr_office_visit_medications' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                    'medication_id' => self::record('phr_medications', false),
+                ],
+            ],
+            'phr_office_visit_procedures' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                    'procedure_id' => self::record('phr_procedures', false),
+                ],
+            ],
             'phr_immunizations' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_allergies' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_portal_messages' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],

@@ -50,6 +50,14 @@ final class PhrNativeTableCompatibility
             'phr_medication_fill_evidence',
         ],
         'eob_corrections' => ['phr_eob_corrections', 'phr_eob_correction_lines'],
+        // The records made during an encounter (#411).
+        'encounter_links' => [
+            'phr_office_visit_documents',
+            'phr_office_visit_lab_results',
+            'phr_office_visit_vitals',
+            'phr_office_visit_medications',
+            'phr_office_visit_procedures',
+        ],
     ];
 
     /**

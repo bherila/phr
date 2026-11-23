@@ -199,6 +199,27 @@ final class AgentMcpToolCatalog
                 [$writes, 'medicationFillsAnswerEobLink'],
                 new WriteSafety(note: 'A repeated answer returns outcome unchanged.'),
             ),
+            $this->read(
+                'office_visits.get_stay',
+                'Read an encounter with its records',
+                'Read one office visit (encounter) with the records linked to it, grouped as lab_results, vitals, medications, procedures and (with documents:read) documents. Each group holds at most limit records and pages on its own: pass group with the next_cursor it returned. office_visit.linked_records counts each group.',
+                [$reads, 'officeVisitsGetStay'],
+            ),
+            $this->write(
+                'office_visits.link_record',
+                'Link a record to its encounter',
+                'Link one document, lab-result, vital, medication or procedure to the office visit (encounter) it was made in. A record belongs to one encounter: one linked elsewhere is refused (unlink it there first). Only evidence is written: the record\'s version and review status do not change. Read the visit and the record first.',
+                [$writes, 'officeVisitsLinkRecord'],
+                new WriteSafety(note: 'A repeated link returns outcome unchanged.'),
+            ),
+            $this->write(
+                'office_visits.unlink_record',
+                'Unlink a record from its encounter',
+                'Remove the link between an office visit and one of its records. Nothing else changes; a record not linked to this visit answers outcome unchanged.',
+                [$writes, 'officeVisitsUnlinkRecord'],
+                new WriteSafety(note: 'A repeated unlink returns outcome unchanged.'),
+                effect: Effect::Destructive,
+            ),
             $this->read('imports.list', 'List imports', 'List bounded import-job status for an accessible patient.', [$reads, 'importsList']),
             $this->read('imports.get', 'Get import', 'Inspect one import job and its proposed structured records.', [$reads, 'importsGet']),
             $this->write(

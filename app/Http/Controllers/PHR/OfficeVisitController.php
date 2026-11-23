@@ -11,6 +11,7 @@ use App\Models\PhrDicomStudy;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -122,7 +123,21 @@ class OfficeVisitController extends Controller
      */
     protected function showQuery(Builder $query): Builder
     {
-        return $query->with(['eobs.lines', 'imagingStudies']);
+        // The records made during the visit (#411), a bounded preview of each kind.
+        $linked = static fn (BelongsToMany $relation) => $relation
+            ->whereNull($relation->getRelated()->qualifyColumn('retracted_at'))
+            ->orderBy($relation->getRelated()->qualifyColumn('id'))
+            ->limit(OfficeVisitResource::LINKED_PREVIEW_LIMIT);
+
+        return $query->with([
+            'eobs.lines',
+            'imagingStudies',
+            'linkedDocuments' => $linked,
+            'linkedLabResults' => $linked,
+            'linkedVitals' => $linked,
+            'linkedMedications' => $linked,
+            'linkedProcedures' => $linked,
+        ]);
     }
 
     /**

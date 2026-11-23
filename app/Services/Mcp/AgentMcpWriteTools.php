@@ -336,6 +336,26 @@ final readonly class AgentMcpWriteTools
     }
 
     /** @return array<string, mixed> */
+    public function officeVisitsLinkRecord(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $visit_id,
+        #[Schema(enum: ['document', 'lab-result', 'vital', 'medication', 'procedure'])] string $resource_type,
+        #[Schema(minimum: 1)] int $resource_id,
+    ): array {
+        return $this->api->officeVisitLinkRecord($patient_id, $visit_id, $resource_type, $resource_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function officeVisitsUnlinkRecord(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $visit_id,
+        #[Schema(enum: ['document', 'lab-result', 'vital', 'medication', 'procedure'])] string $resource_type,
+        #[Schema(minimum: 1)] int $resource_id,
+    ): array {
+        return $this->api->officeVisitUnlinkRecord($patient_id, $visit_id, $resource_type, $resource_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function eobsImport(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1)] int $document_id,

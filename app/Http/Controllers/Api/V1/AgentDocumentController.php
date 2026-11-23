@@ -11,6 +11,7 @@ use App\Models\PhrDocument;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
+use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiCursor;
@@ -22,6 +23,7 @@ use App\Support\AgentApi\AgentTextWindow;
 use App\Support\PHR\PhrDocumentTags;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -35,6 +37,9 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class AgentDocumentController extends Controller
 {
+    /** @var array<int, int>|null the encounter each document of the page is linked to, when read in bulk */
+    private ?array $encounterIds = null;
+
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrDocumentUploadService $documentUploads,
@@ -102,6 +107,7 @@ final class AgentDocumentController extends Controller
 
         $publicIds = $this->publicIds->forRecords($patientId, PhrPublicIds::DOCUMENTS, $page->getCollection()->pluck('id'));
         $patientPublicId = $this->publicIds->forPatient($patientId);
+        $this->encounterIds = app(PhrEncounterLinks::class)->encounterIds($patientId, 'document', $page->getCollection()->pluck('id'));
 
         return response()->json([
             'resource_type' => 'document', 'patient_id' => $patientId,
@@ -365,10 +371,34 @@ final class AgentDocumentController extends Controller
             'imported_at' => $document->imported_at?->toIso8601String(),
             'processing_state' => $this->processingState($document),
             'has_file' => $document->storage_path !== null,
+            'encounter_id' => $this->encounterId($document),
             'created_at' => $document->created_at?->toIso8601String(),
             'updated_at' => $document->updated_at?->toIso8601String(),
             'version' => $this->versions->for($document),
         ];
+    }
+
+    /**
+     * Documents as documents.get serializes them, for the grouped encounter read.
+     *
+     * @param  Collection<int, PhrDocument>  $documents
+     * @return list<array<string, mixed>>
+     */
+    public function documentResources(int $patientId, Collection $documents): array
+    {
+        $publicIds = $this->publicIds->forRecords($patientId, PhrPublicIds::DOCUMENTS, $documents->pluck('id'));
+        $patientPublicId = $this->publicIds->forPatient($patientId);
+        $this->encounterIds = app(PhrEncounterLinks::class)->encounterIds($patientId, 'document', $documents->pluck('id'));
+
+        return $documents->map(fn (PhrDocument $document): array => $this->payload($document, $publicIds[(int) $document->id] ?? null, $patientPublicId))->values()->all();
+    }
+
+    /** The office visit the document is linked to (#411), while that visit stands. */
+    private function encounterId(PhrDocument $document): ?int
+    {
+        $ids = $this->encounterIds ?? app(PhrEncounterLinks::class)->encounterIds((int) $document->patient_id, 'document', [(int) $document->id]);
+
+        return $ids[(int) $document->id] ?? null;
     }
 
     /** @return array{id: int, patient_id: int, processing_state: string} */

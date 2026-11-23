@@ -6,6 +6,7 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Support\PHR\PhrReviewStatus;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -36,6 +37,9 @@ class PhrStructuredDataImporter
 
     /** @var array{source_document_id: int, source: string}|null */
     private ?array $sourceDocument = null;
+
+    /** @var list<Model>|null the rows written inside collectingWritten(), while it runs */
+    private ?array $written = null;
 
     public function __construct(
         private PhrRecordAttributeMapper $attributeMapper,
@@ -70,6 +74,7 @@ class PhrStructuredDataImporter
         return DB::transaction(function () use ($patient, $actorUserId, $jobType, $payload, $options): PhrImportResult {
             if ($jobType === 'phr_document') {
                 $document = $this->documentImporter->createOrUpdateDocument($patient, $actorUserId, $payload, $options);
+                $this->recordWritten($document);
                 $result = new PhrImportResult(
                     documents: 1,
                     created: $document->wasRecentlyCreated ? 1 : 0,
@@ -106,6 +111,38 @@ class PhrStructuredDataImporter
             return $import();
         } finally {
             $this->sourceDocument = $previous;
+        }
+    }
+
+    /**
+     * Runs `$import` and returns, beside its result, every row it wrote or found unchanged
+     * (a row skipped for a missing field is not one), so a caller can link what one source
+     * resource became: a FHIR Observation the lab result it was read as, say.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $import
+     * @return array{0: TResult, 1: list<Model>}
+     */
+    public function collectingWritten(callable $import): array
+    {
+        $previous = $this->written;
+        $this->written = [];
+        $collected = [];
+        try {
+            $result = $import();
+            $collected = $this->written;
+        } finally {
+            $this->written = $previous === null ? null : [...$previous, ...($this->written ?? [])];
+        }
+
+        return [$result, $collected];
+    }
+
+    private function recordWritten(Model $model): void
+    {
+        if ($this->written !== null) {
+            $this->written[] = $model;
         }
     }
 
@@ -217,6 +254,7 @@ class PhrStructuredDataImporter
                 $attributes['review_status'] = $review;
             }
             $model = $this->upserter->upsert($this->attributeMapper->modelClassFor($jobType), $attributes, $review, self::KEPT_PROVENANCE);
+            $this->recordWritten($model);
             match (true) {
                 $model->wasRecentlyCreated => $result->addCreated(),
                 $model->wasChanged() => $result->addUpdated(),

@@ -3,14 +3,22 @@
 namespace App\Http\Resources\PHR;
 
 use App\Models\PhrDicomStudy;
+use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
+use App\Models\PhrLabResult;
+use App\Models\PhrMedication;
 use App\Models\PhrOfficeVisit;
+use App\Models\PhrPatientVital;
+use App\Models\PhrProcedure;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class OfficeVisitResource extends JsonResource
 {
+    /** How many records of each kind a visit page previews (#411). */
+    public const int LINKED_PREVIEW_LIMIT = 100;
+
     /**
      * @return array<string, mixed>
      */
@@ -89,8 +97,64 @@ class OfficeVisitResource extends JsonResource
                     ->values()
                     ->all()
                 : [],
+            'linked_records' => $this->when(
+                $visit->relationLoaded('linkedLabResults'),
+                fn (): array => $this->linkedRecords($visit),
+            ),
             'created_at' => $visit->created_at?->toDateTimeString(),
             'updated_at' => $visit->updated_at?->toDateTimeString(),
+        ];
+    }
+
+    /**
+     * A compact summary of each linked record, enough for the visit page to list them.
+     *
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function linkedRecords(PhrOfficeVisit $visit): array
+    {
+        $summaries = static fn (string $relation, callable $summary): array => $visit->relationLoaded($relation)
+            ? $visit->getRelation($relation)->map($summary)->values()->all()
+            : [];
+
+        return [
+            'documents' => $summaries('linkedDocuments', static fn (PhrDocument $document): array => [
+                'id' => $document->id,
+                'title' => $document->title ?? $document->original_filename,
+                'document_type' => $document->document_type,
+                'observed_at' => $document->observed_at?->toDateTimeString(),
+            ]),
+            'lab_results' => $summaries('linkedLabResults', static fn (PhrLabResult $lab): array => [
+                'id' => $lab->id,
+                'name' => $lab->analyte ?? $lab->test_name,
+                'value' => $lab->value,
+                'unit' => $lab->unit,
+                'abnormal_flag' => $lab->abnormal_flag,
+                'observed_at' => ($lab->collection_datetime ?? $lab->result_datetime)?->toDateTimeString(),
+                'review_status' => $lab->review_status,
+            ]),
+            'vitals' => $summaries('linkedVitals', static fn (PhrPatientVital $vital): array => [
+                'id' => $vital->id,
+                'name' => $vital->vital_name,
+                'value' => $vital->vital_value,
+                'unit' => $vital->unit,
+                'observed_at' => $vital->observed_at?->toDateTimeString() ?? $vital->vital_date?->toDateString(),
+                'review_status' => $vital->review_status,
+            ]),
+            'medications' => $summaries('linkedMedications', static fn (PhrMedication $medication): array => [
+                'id' => $medication->id,
+                'name' => $medication->name,
+                'dose' => $medication->dose,
+                'status' => $medication->status,
+                'review_status' => $medication->review_status,
+            ]),
+            'procedures' => $summaries('linkedProcedures', static fn (PhrProcedure $procedure): array => [
+                'id' => $procedure->id,
+                'name' => $procedure->name,
+                'performed_on' => ($procedure->performed_at ?? $procedure->performed_on)?->toDateString(),
+                'status' => $procedure->status,
+                'review_status' => $procedure->review_status,
+            ]),
         ];
     }
 }

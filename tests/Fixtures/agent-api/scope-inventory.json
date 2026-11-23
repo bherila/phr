@@ -432,6 +432,25 @@
     "oauth.patient_consent.revoke": {
         "authenticated": true
     },
+    "office_visits.get_stay": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "office_visits.link_record": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "office_visits.unlink_record": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
     "office_visits.update": {
         "scopes": [
             "clinical:read",

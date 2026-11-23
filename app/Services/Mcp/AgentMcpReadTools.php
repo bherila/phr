@@ -273,12 +273,23 @@ final class AgentMcpReadTools
     /** @return array<string, mixed> */
     public function evidenceLinks(
         #[Schema(minimum: 1)] int $patient_id,
-        #[Schema(enum: ['document', 'eob', 'eob-line', 'medication-fill', 'office-visit', 'procedure'])] string $resource_type,
+        #[Schema(enum: ['document', 'eob', 'eob-line', 'lab-result', 'medication', 'medication-fill', 'office-visit', 'procedure', 'vital'])] string $resource_type,
         #[Schema(minimum: 1)] int $resource_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
     ): array {
         return $this->api->evidenceLinks($patient_id, $resource_type, $resource_id, $limit, $cursor)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function officeVisitsGetStay(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $visit_id,
+        #[Schema(enum: ['lab_results', 'vitals', 'medications', 'procedures', 'documents'])] ?string $group = null,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 10,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+    ): array {
+        return $this->api->officeVisitStay($patient_id, $visit_id, $group, $limit, $cursor)->toArray();
     }
 
     /** @return array<string, mixed> */

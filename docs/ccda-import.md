@@ -65,6 +65,14 @@ disposition. An Encounter Activity with the same id is the same visit: the activ
 fields stand and the header fills only what it leaves unsaid, so the stay is never imported
 twice.
 
+The lab results, vitals, procedures and medications read from such a document are linked
+to that visit (#411; `PhrEncounterLinks`). Three limits keep the link honest: a CCD
+(`2.16.840.1.113883.10.20.22.1.2`) links nothing, since its header encounter is when a
+longitudinal summary was made, not where its history was recorded; a result, vital or
+procedure the document dates more than a day outside the encounter's period is not linked
+(the import warns with a count); and a record already linked to another encounter keeps
+it. A link is evidence: it changes neither record's version nor its review status.
+
 ## Hospital medication lists
 
 Admission Medications (42346-7), Medications Administered (29549-3) and Hospital
