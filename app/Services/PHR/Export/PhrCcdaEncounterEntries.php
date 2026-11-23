@@ -25,6 +25,10 @@ use XMLWriter;
  *   the facility. Its HSLOC code is not stored, so it is null-flavored.
  * - Each encounter diagnosis, and each ICD-10 code the diagnoses do not already name,
  *   is an Encounter Diagnosis (.4.80:2024-05-01) holding a Problem Observation.
+ * - The chief complaint is an Indication (.4.19:2023-05-01), SNOMED CT Complaint, whose
+ *   null-flavored value's original text references the table's Reason cell.
+ * - No C-CDA entry holds an encounter's assessment. It is the table's Assessment cell,
+ *   which the importer reads under that header (PhrCcdaEncounterActivities).
  *
  * Ids are version 5 UUIDs keyed to the deployment, like the result entries', so a
  * re-import of the export updates the same visits. Each activity references its table
@@ -46,6 +50,10 @@ final class PhrCcdaEncounterEntries
     private const string DIAGNOSIS_VERSION = '2024-05-01';
 
     private const string LOCATION_TEMPLATE = '2.16.840.1.113883.10.20.22.4.32';
+
+    private const string INDICATION_TEMPLATE = '2.16.840.1.113883.10.20.22.4.19';
+
+    private const string INDICATION_VERSION = '2023-05-01';
 
     private const string SDTC = 'urn:hl7-org:sdtc';
 
@@ -78,6 +86,12 @@ final class PhrCcdaEncounterEntries
     public static function rowId(int $index): string
     {
         return 'encounter-'.($index + 1);
+    }
+
+    /** The `ID` of a visit's Reason cell, its chief complaint, in visit order. */
+    public static function reasonId(int $index): string
+    {
+        return self::rowId($index).'-reason';
     }
 
     /** The `ID` of a visit's narrative list item of coded facts. */
@@ -167,6 +181,7 @@ final class PhrCcdaEncounterEntries
         $this->dischargeDisposition($xml, $visit);
         $this->performer($xml, $visit);
         $this->location($xml, $visit);
+        $this->indication($xml, $index, $visit);
         foreach (self::diagnoses($visit) as $position => $diagnosis) {
             $this->diagnosis($xml, $index, $position, $visit, $diagnosis);
         }
@@ -295,6 +310,51 @@ final class PhrCcdaEncounterEntries
         $xml->startElement('playingEntity');
         $xml->writeAttribute('classCode', 'PLC');
         $xml->writeElement('name', $place);
+        $xml->endElement();
+        $xml->endElement();
+        $xml->endElement();
+    }
+
+    /**
+     * The chief complaint as the reason for the visit: an Indication whose value is the
+     * complaint's words, held by reference to the table's Reason cell. PHR stores no code
+     * for it, so the value is null-flavored, never a guessed code.
+     */
+    private function indication(XMLWriter $xml, int $index, object $visit): void
+    {
+        if ($this->text($visit->chief_complaint ?? null) === null) {
+            return;
+        }
+
+        $xml->startElement('entryRelationship');
+        $xml->writeAttribute('typeCode', 'RSON');
+        $xml->startElement('observation');
+        $xml->writeAttribute('classCode', 'OBS');
+        $xml->writeAttribute('moodCode', 'EVN');
+        $this->template($xml, self::INDICATION_TEMPLATE, self::INDICATION_VERSION);
+        $this->id($xml, 'indication', $this->key($visit));
+        $xml->startElement('code');
+        $xml->writeAttribute('code', '409586006');
+        $xml->writeAttribute('codeSystem', '2.16.840.1.113883.6.96');
+        $xml->writeAttribute('codeSystemName', 'SNOMED CT');
+        $xml->writeAttribute('displayName', 'Complaint');
+        $xml->endElement();
+        $this->reference($xml, '#'.self::reasonId($index));
+        $this->completed($xml);
+        $xml->startElement('effectiveTime');
+        $xml->startElement('low');
+        $start = $this->day($visit->visit_started_at ?? null) ?? $this->day($visit->visit_date ?? null);
+        $start === null ? $xml->writeAttribute('nullFlavor', 'UNK') : $xml->writeAttribute('value', $start);
+        $xml->endElement();
+        $xml->endElement();
+        $xml->startElement('value');
+        $xml->writeAttribute('xsi:type', 'CD');
+        $xml->writeAttribute('nullFlavor', 'OTH');
+        $xml->startElement('originalText');
+        $xml->startElement('reference');
+        $xml->writeAttribute('value', '#'.self::reasonId($index));
+        $xml->endElement();
+        $xml->endElement();
         $xml->endElement();
         $xml->endElement();
         $xml->endElement();

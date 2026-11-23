@@ -22,8 +22,14 @@ class PhrFhirImporter
     /** @var array<int, array<string, mixed>> the bundle being read, by entry position */
     private array $resources = [];
 
-    /** @var array<string, int> fullUrl or `Type/id` => entry position */
-    private array $references = [];
+    /** @var array<string, int> fullUrl, as written and without a `_history` version => entry position */
+    private array $fullUrls = [];
+
+    /** @var array<string, int> `Type/id` => entry position, for relative references */
+    private array $typeIds = [];
+
+    /** @var array<int, string> entry position => its fullUrl */
+    private array $entryUrls = [];
 
     public function __construct(
         private PhrStructuredDataImporter $structuredImporter,
@@ -83,7 +89,7 @@ class PhrFhirImporter
 
             $fullUrl = is_string($entry['fullUrl'] ?? null) ? $entry['fullUrl'] : null;
             [$imported, $written[$position]] = $this->structuredImporter->collectingWritten(
-                fn (): PhrImportResult => $this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? []),
+                fn (): PhrImportResult => $this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? [], $position),
             );
             $result->merge($imported);
         }
@@ -114,7 +120,7 @@ class PhrFhirImporter
             }
             $visitIds = [];
             foreach ($references as $reference) {
-                $target = $this->resolve($reference);
+                $target = $this->resolve($reference, $position);
                 if ($target === null || ($this->resources[$target]['resourceType'] ?? null) !== 'Encounter') {
                     continue;
                 }
@@ -176,49 +182,87 @@ class PhrFhirImporter
     private function index(array $entries): void
     {
         $this->resources = [];
-        $this->references = [];
+        $this->fullUrls = [];
+        $this->typeIds = [];
+        $this->entryUrls = [];
         foreach ($entries as $position => $entry) {
             if (! is_array($entry) || ! is_array($entry['resource'] ?? null)) {
                 continue;
             }
             $resource = $entry['resource'];
             $this->resources[$position] = $resource;
-            if (is_string($entry['fullUrl'] ?? null) && trim($entry['fullUrl']) !== '') {
-                $this->references[trim($entry['fullUrl'])] ??= $position;
+            $fullUrl = is_string($entry['fullUrl'] ?? null) ? $this->text($entry['fullUrl']) : null;
+            if ($fullUrl !== null) {
+                $this->entryUrls[$position] = $fullUrl;
+                $this->fullUrls[$fullUrl] ??= $position;
+                $this->fullUrls[self::withoutVersion($fullUrl)] ??= $position;
             }
             $id = $resource['id'] ?? null;
             if (is_string($id) && trim($id) !== '' && is_string($resource['resourceType'] ?? null)) {
-                $this->references[$resource['resourceType'].'/'.trim($id)] ??= $position;
+                $this->typeIds[$resource['resourceType'].'/'.trim($id)] ??= $position;
             }
         }
     }
 
     /**
-     * The bundle position a reference names, when the resource is in the bundle.
-     * A reference that does not resolve is not guessed at.
+     * The bundle position a reference names, when the resource is in the bundle, the
+     * way FHIR resolves a reference inside a bundle. A reference that does not resolve
+     * is not guessed at.
+     *
+     * - An absolute reference (a URL or a URN) is only the entry with that fullUrl, at
+     *   any `_history` version: the same server base and the same `Type/id`. The same
+     *   `Type/id` on another server is another resource.
+     * - A relative `Type/id` is the resource at the referring entry's server base when
+     *   the bundle holds it, else the bundle's resource with that `Type/id`.
+     *
+     * @param  int|null  $from  the bundle position of the resource the reference is in
      */
-    private function resolve(mixed $reference): ?int
+    private function resolve(mixed $reference, ?int $from = null): ?int
     {
         $reference = is_array($reference) ? ($reference['reference'] ?? null) : null;
         if (! is_string($reference) || trim($reference) === '') {
             return null;
         }
         $reference = trim($reference);
-        if (isset($this->references[$reference])) {
-            return $this->references[$reference];
+        if (isset($this->fullUrls[$reference])) {
+            return $this->fullUrls[$reference];
         }
-        if (preg_match('#(?:^|/)([A-Z][A-Za-z]+)/([A-Za-z0-9\-.]{1,64})(?:/_history/[^/]+)?$#', $reference, $m) === 1) {
-            return $this->references[$m[1].'/'.$m[2]] ?? null;
+        if (preg_match('#^[A-Za-z][A-Za-z0-9+.\-]*:#', $reference) === 1) {
+            return $this->fullUrls[self::withoutVersion($reference)] ?? null;
+        }
+        if (preg_match('#(?:^|/)([A-Z][A-Za-z]+)/([A-Za-z0-9\-.]{1,64})(?:/_history/[^/]+)?$#', $reference, $m) !== 1) {
+            return null;
+        }
+        $base = $from === null ? null : self::restfulBase($this->entryUrls[$from] ?? null);
+        if ($base !== null && isset($this->fullUrls[$base.$m[1].'/'.$m[2]])) {
+            return $this->fullUrls[$base.$m[1].'/'.$m[2]];
         }
 
-        return null;
+        return $this->typeIds[$m[1].'/'.$m[2]] ?? null;
+    }
+
+    /** A RESTful URL without its `_history` version. */
+    private static function withoutVersion(string $url): string
+    {
+        return preg_replace('#/_history/[^/]+$#', '', $url) ?? $url;
+    }
+
+    /** The server base of a RESTful fullUrl (`<base>/Type/id`), with its trailing slash. */
+    private static function restfulBase(?string $fullUrl): ?string
+    {
+        if ($fullUrl === null || preg_match('#^([A-Za-z][A-Za-z0-9+.\-]*://.+/)[A-Z][A-Za-z]+/[A-Za-z0-9\-.]{1,64}(?:/_history/[^/]+)?$#', $fullUrl, $m) !== 1) {
+            return null;
+        }
+
+        return $m[1];
     }
 
     /**
      * ClinicalImpressions that assess an Encounter in the same bundle. PHR exports
      * each visit as both, so importing both as visits would double every visit; the
-     * impression's description and summary are read onto its encounter instead. One
-     * whose encounter is not in the bundle is still a visit of its own.
+     * impressions' descriptions and summaries are read onto their encounter instead
+     * (encounterRecord()), every one of them. One whose encounter is not in the bundle
+     * is still a visit of its own.
      *
      * @return array{into: array<int, int>, of: array<int, list<array<string, mixed>>>}
      */
@@ -230,7 +274,7 @@ class PhrFhirImporter
             if (($resource['resourceType'] ?? null) !== 'ClinicalImpression') {
                 continue;
             }
-            $target = $this->resolve($resource['encounter'] ?? $resource['context'] ?? null);
+            $target = $this->resolve($resource['encounter'] ?? $resource['context'] ?? null, $position);
             if ($target === null || ($this->resources[$target]['resourceType'] ?? null) !== 'Encounter') {
                 continue;
             }
@@ -245,7 +289,7 @@ class PhrFhirImporter
      * @param  array<string, mixed>  $resource
      * @param  list<array<string, mixed>>  $impressions  ClinicalImpressions folded into this Encounter
      */
-    private function importResource(array $resource, PhrPatient $patient, int $actorUserId, ?string $fullUrl = null, array $impressions = []): PhrImportResult
+    private function importResource(array $resource, PhrPatient $patient, int $actorUserId, ?string $fullUrl = null, array $impressions = [], ?int $position = null): PhrImportResult
     {
         $resourceType = (string) ($resource['resourceType'] ?? '');
         $externalId = $this->externalId($resource, $fullUrl);
@@ -302,7 +346,7 @@ class PhrFhirImporter
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
             'Encounter' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', [
-                $this->encounterRecord($resource, $externalId, $impressions),
+                $this->encounterRecord($resource, $externalId, $impressions, $position),
             ], ['import_source' => 'fhir']),
             'ClinicalImpression' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', [[
                 'external_id' => $externalId,
@@ -397,10 +441,13 @@ class PhrFhirImporter
      * @param  list<array<string, mixed>>  $impressions
      * @return array<string, mixed>
      */
-    private function encounterRecord(array $resource, string $externalId, array $impressions): array
+    private function encounterRecord(array $resource, string $externalId, array $impressions, ?int $position = null): array
     {
-        $impression = $impressions[0] ?? [];
         $hospitalization = is_array($resource['hospitalization'] ?? null) ? $resource['hospitalization'] : [];
+        $descriptions = array_values(array_filter(array_map(fn (array $impression): ?string => $this->text($impression['description'] ?? null), $impressions)));
+        $complaint = $this->codeableText(data_get($resource, 'reasonCode.0'))
+            ?? ($descriptions[0] ?? null)
+            ?? $this->text($resource['description'] ?? null);
 
         return [
             'external_id' => $externalId,
@@ -410,20 +457,53 @@ class PhrFhirImporter
             'visit_type' => $this->codeableText(data_get($resource, 'type.0')),
             'provider_name' => data_get($resource, 'participant.0.individual.display'),
             'facility_name' => $this->text(data_get($resource, 'serviceProvider.display')),
-            'chief_complaint' => $this->codeableText(data_get($resource, 'reasonCode.0'))
-                ?? $this->text($impression['description'] ?? null)
-                ?? $this->text($resource['description'] ?? null),
-            'assessment' => $impression === [] ? null : $this->summary($impression),
+            'chief_complaint' => $complaint,
+            'assessment' => $this->assessment($impressions, $complaint),
             'encounter_class' => $this->encounterClass($resource['class'] ?? null),
             'encounter_state' => PhrEncounterVocabulary::stateCode($resource['status'] ?? null),
-            'location' => $this->location($resource['location'] ?? null),
+            'location' => $this->location($resource['location'] ?? null, $position),
             'admit_source' => PhrEncounterVocabulary::admitSourceCode($this->codeForSystemExactly($hospitalization['admitSource'] ?? null, PhrEncounterVocabulary::ADMIT_SOURCE_SYSTEM)),
             'admit_source_text' => $this->conceptText($hospitalization['admitSource'] ?? null),
             'discharge_disposition' => PhrEncounterVocabulary::dischargeDispositionCode($this->codeForSystemExactly($hospitalization['dischargeDisposition'] ?? null, PhrEncounterVocabulary::DISCHARGE_DISPOSITION_SYSTEM)),
             'discharge_disposition_text' => $this->conceptText($hospitalization['dischargeDisposition'] ?? null),
-            'encounter_diagnoses' => $this->diagnoses($resource),
+            'encounter_diagnoses' => $this->diagnoses($resource, $position),
             'raw_text' => json_encode($resource),
         ];
+    }
+
+    /**
+     * What the ClinicalImpressions folded into an encounter assess, in bundle order. One
+     * impression is its summary. With several, each one's summary is a paragraph, and
+     * an impression that describes something other than the visit's chief complaint
+     * starts its paragraph with that description (or is only it, with no summary), so
+     * no impression's assessment is lost and each still reads as what it assessed.
+     *
+     * @param  list<array<string, mixed>>  $impressions
+     */
+    private function assessment(array $impressions, ?string $complaint): ?string
+    {
+        if (count($impressions) <= 1) {
+            return $impressions === [] ? null : $this->summary($impressions[0]);
+        }
+
+        $parts = [];
+        foreach ($impressions as $impression) {
+            $summary = $this->summary($impression);
+            $description = $this->text($impression['description'] ?? null);
+            if ($description === $complaint) {
+                $description = null;
+            }
+            $part = match (true) {
+                $description === null => $summary,
+                $summary === null => $description,
+                default => $description.': '.$summary,
+            };
+            if ($part !== null && ! in_array($part, $parts, true)) {
+                $parts[] = $part;
+            }
+        }
+
+        return $parts === [] ? null : implode("\n\n", $parts);
     }
 
     /**
@@ -459,14 +539,14 @@ class PhrFhirImporter
     }
 
     /** The first location the encounter was at that names itself, here or in the bundle. */
-    private function location(mixed $locations): ?string
+    private function location(mixed $locations, ?int $from = null): ?string
     {
         foreach (is_array($locations) ? $locations : [] as $location) {
             if (! is_array($location) || ($location['status'] ?? null) === 'planned') {
                 continue;
             }
             $named = $this->text(data_get($location, 'location.display'));
-            $resolved = $this->resolve($location['location'] ?? null);
+            $resolved = $this->resolve($location['location'] ?? null, $from);
             if ($named === null && $resolved !== null && ($this->resources[$resolved]['resourceType'] ?? null) === 'Location') {
                 $named = $this->text($this->resources[$resolved]['name'] ?? null);
             }
@@ -485,7 +565,7 @@ class PhrFhirImporter
      * @param  array<string, mixed>  $resource
      * @return list<array<string, string>>|null
      */
-    private function diagnoses(array $resource): ?array
+    private function diagnoses(array $resource, ?int $from = null): ?array
     {
         $contained = [];
         foreach (is_array($resource['contained'] ?? null) ? $resource['contained'] : [] as $inner) {
@@ -502,7 +582,7 @@ class PhrFhirImporter
             $reference = $diagnosis['condition']['reference'] ?? null;
             $condition = is_string($reference) ? ($contained[$reference] ?? null) : null;
             if ($condition === null) {
-                $resolved = $this->resolve($diagnosis['condition']);
+                $resolved = $this->resolve($diagnosis['condition'], $from);
                 $condition = $resolved === null ? null : $this->resources[$resolved];
             }
             $coding = is_array($condition) ? data_get($condition, 'code.coding.0') : null;

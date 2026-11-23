@@ -27,6 +27,15 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
 
     private const string ICD10_CM = '2.16.840.1.113883.6.90';
 
+    /**
+     * Fields read from the referenced narrative row when the entry states none, by the
+     * column headers (lower case) that name them, in order of preference.
+     */
+    private const array NARRATIVE_COLUMNS = [
+        'chief_complaint' => ['reason', 'reason for visit', 'chief complaint'],
+        'assessment' => ['assessment'],
+    ];
+
     /** Diagnosis code systems by OID, as the code system URIs a visit stores. */
     private const array DIAGNOSIS_SYSTEMS = [
         '2.16.840.1.113883.6.90' => 'http://hl7.org/fhir/sid/icd-10-cm',
@@ -80,10 +89,50 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
                 continue;
             }
 
-            $entries[] = $this->entry($encounter, $this->record($encounter), $this->references($encounter));
+            $references = $this->references($encounter);
+            $entries[] = $this->entry($encounter, $this->withNarrative($this->record($encounter), $this->xml->narrativeColumns($references)), $references);
         }
 
         return $entries;
+    }
+
+    /**
+     * Visit fields an Encounter Activity often leaves to its narrative: no C-CDA
+     * template holds an encounter's assessment, and the Indication naming its reason
+     * is optional. Where the entry states one, its own words are used.
+     *
+     * Where it states none, an import never clears what the visit already has (see
+     * PhrCcdaImporter::importEntries()): a row the narrative-table reader made, or an
+     * earlier reading of the same table, keeps its complaint and assessment.
+     */
+    public function keptWhenUnstated(): array
+    {
+        return array_keys(self::NARRATIVE_COLUMNS);
+    }
+
+    /**
+     * The fields the entry leaves unsaid, from the cells of its narrative row under a
+     * header that names them, as PHR's own export (and many vendors') heads them.
+     *
+     * @param  array<string, mixed>  $record
+     * @param  array<string, string>  $columns  the referenced row's cells by header
+     * @return array<string, mixed>
+     */
+    private function withNarrative(array $record, array $columns): array
+    {
+        foreach (self::NARRATIVE_COLUMNS as $field => $headers) {
+            if (($record[$field] ?? null) !== null) {
+                continue;
+            }
+            foreach ($headers as $header) {
+                if (isset($columns[$header])) {
+                    $record[$field] = $columns[$header];
+                    break;
+                }
+            }
+        }
+
+        return $record;
     }
 
     public function narrativeRecord(array $cells): array

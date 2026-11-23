@@ -21,6 +21,7 @@ use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Tests\Concerns\ConfiguresPassportKeys;
+use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
 
 /**
@@ -274,6 +275,168 @@ final class PhrEncounterCoreTest extends TestCase
         $this->assertSame([['code' => 'J18.9', 'description' => 'Community-acquired pneumonia'], ['code' => 'E87.6', 'description' => 'Hypokalemia']], $copy->icd10_codes);
     }
 
+    public function test_a_ccda_export_round_trip_keeps_the_chief_complaint_and_assessment(): void
+    {
+        $patient = $this->patient();
+        $this->confirmedVisit($patient, [
+            'visit_type' => 'Synthetic office visit',
+            'visit_date' => '2026-01-12',
+            'provider_name' => 'Synthetic Clinician',
+            'chief_complaint' => 'Synthetic cough for a week',
+            'assessment' => 'Synthetic assessment: viral bronchitis, improving',
+        ]);
+        $xml = app(PhrCcdaExporter::class)->documentXml(app(PhrExportDataService::class)->load($patient));
+
+        $other = $this->patient('Pat Example Copy');
+        $first = app(PhrCcdaImporter::class)->importXml($xml, $other, $other->owner_user_id);
+        $again = app(PhrCcdaImporter::class)->importXml($xml, $other, $other->owner_user_id);
+
+        $copy = PhrOfficeVisit::query()->where('patient_id', $other->id)->sole();
+        $this->assertSame(1, $first->created);
+        $this->assertSame([0, 0], [$again->created, $again->updated]);
+        $this->assertSame(
+            ['Synthetic cough for a week', 'Synthetic assessment: viral bronchitis, improving'],
+            [$copy->chief_complaint, $copy->assessment],
+        );
+
+        // The complaint is the visit's Indication, not only a column a reader must know.
+        $this->assertStringContainsString('<templateId root="2.16.840.1.113883.10.20.22.4.19" extension="2023-05-01"/>', $xml);
+        $third = $this->patient('Pat Example Third');
+        app(PhrCcdaImporter::class)->importXml(str_replace('<th>Reason</th>', '<th>Synthetic column</th>', $xml), $third, $third->owner_user_id);
+        $this->assertSame('Synthetic cough for a week', PhrOfficeVisit::query()->where('patient_id', $third->id)->sole()->chief_complaint);
+    }
+
+    public function test_reimporting_an_export_first_read_from_its_narrative_table_keeps_its_complaint_and_assessment(): void
+    {
+        $patient = $this->patient();
+        $this->confirmedVisit($patient, [
+            'visit_type' => 'Synthetic office visit',
+            'visit_date' => '2026-01-12',
+            'chief_complaint' => 'Synthetic cough for a week',
+            'assessment' => 'Synthetic assessment: viral bronchitis, improving',
+        ]);
+        $xml = app(PhrCcdaExporter::class)->documentXml(app(PhrExportDataService::class)->load($patient));
+
+        // An export from before visits had entries is read from its table alone.
+        $other = $this->patient('Pat Example Copy');
+        app(PhrCcdaImporter::class)->importXml(PhrCcdaSyntheticDocument::withoutEntries($xml), $other, $other->owner_user_id);
+        $narrative = PhrOfficeVisit::query()->where('patient_id', $other->id)->sole();
+        $this->assertSame('Synthetic assessment: viral bronchitis, improving', $narrative->assessment);
+
+        $adopting = app(PhrCcdaImporter::class)->importXml($xml, $other, $other->owner_user_id);
+
+        $copy = PhrOfficeVisit::query()->where('patient_id', $other->id)->sole();
+        $this->assertSame($narrative->id, $copy->id, 'the entry adopts the row the table made');
+        $this->assertSame(0, $adopting->created);
+        $this->assertSame(
+            ['Synthetic cough for a week', 'Synthetic assessment: viral bronchitis, improving'],
+            [$copy->chief_complaint, $copy->assessment],
+        );
+    }
+
+    public function test_adopting_a_visit_read_from_its_narrative_table_never_clears_what_the_entry_does_not_say(): void
+    {
+        $patient = $this->patient();
+        $xml = $this->vendorEncounterDocument();
+        app(PhrCcdaImporter::class)->importXml(PhrCcdaSyntheticDocument::withoutEntries($xml), $patient, $patient->owner_user_id);
+        $narrative = PhrOfficeVisit::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame(['Synthetic concern', 'Synthetic impression'], [$narrative->chief_complaint, $narrative->assessment]);
+
+        app(PhrCcdaImporter::class)->importXml($xml, $patient, $patient->owner_user_id);
+        $again = app(PhrCcdaImporter::class)->importXml($xml, $patient, $patient->owner_user_id);
+
+        $visit = PhrOfficeVisit::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame($narrative->id, $visit->id);
+        $this->assertStringStartsWith('ccda-visit-', (string) $visit->external_id);
+        $this->assertSame('Synthetic Clinician', $visit->provider_name, 'what the entry says replaces the table');
+        $this->assertSame(['Synthetic concern', 'Synthetic impression'], [$visit->chief_complaint, $visit->assessment], 'what it does not say is kept');
+        $this->assertSame([0, 0], [$again->created, $again->updated], 'and stays kept on the next import');
+    }
+
+    public function test_every_impression_folded_into_an_encounter_keeps_its_assessment(): void
+    {
+        $patient = $this->patient();
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => [
+                'resourceType' => 'Encounter', 'id' => 'synthetic-two-impressions', 'status' => 'finished',
+                'class' => ['system' => 'http://terminology.hl7.org/CodeSystem/v3-ActCode', 'code' => 'AMB'],
+                'period' => ['start' => '2026-01-20'], 'type' => [['text' => 'Synthetic follow-up']],
+            ]],
+            ['resource' => [
+                'resourceType' => 'ClinicalImpression', 'id' => 'synthetic-impression-a', 'status' => 'completed',
+                'encounter' => ['reference' => 'Encounter/synthetic-two-impressions'],
+                'description' => 'Synthetic knee pain',
+            ]],
+            ['resource' => [
+                'resourceType' => 'ClinicalImpression', 'id' => 'synthetic-impression-b', 'status' => 'completed',
+                'encounter' => ['reference' => 'Encounter/synthetic-two-impressions'],
+                'description' => 'Synthetic knee pain',
+                'summary' => 'Synthetic first assessment',
+            ]],
+            ['resource' => [
+                'resourceType' => 'ClinicalImpression', 'id' => 'synthetic-impression-c', 'status' => 'completed',
+                'encounter' => ['reference' => 'Encounter/synthetic-two-impressions'],
+                'description' => 'Synthetic blood pressure review',
+                'summary' => ['text' => 'Synthetic second assessment'],
+            ]],
+        ]];
+
+        $first = app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+        $again = app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+
+        $this->assertSame(1, $first->created, 'the impressions are part of the visit, not visits of their own');
+        $this->assertSame([0, 0], [$again->created, $again->updated]);
+        $visit = PhrOfficeVisit::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame('Synthetic knee pain', $visit->chief_complaint);
+        $this->assertSame("Synthetic first assessment\n\nSynthetic blood pressure review: Synthetic second assessment", $visit->assessment);
+    }
+
+    public function test_an_absolute_reference_resolves_only_by_its_full_identity(): void
+    {
+        $patient = $this->patient();
+        $a = 'https://hospital-a.example/fhir/';
+        $b = 'https://hospital-b.example/fhir/';
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['fullUrl' => $a.'Encounter/42', 'resource' => [
+                'resourceType' => 'Encounter', 'id' => '42', 'status' => 'finished',
+                'period' => ['start' => '2026-01-21'], 'type' => [['text' => 'Synthetic visit at hospital A']],
+                // Hospital B's Condition/9 and hospital C's Location/3 are not in the bundle; hospital A's are.
+                'diagnosis' => [['condition' => ['reference' => $b.'Condition/9', 'display' => 'Synthetic diagnosis at hospital B']]],
+                'location' => [['location' => ['reference' => 'https://hospital-c.example/fhir/Location/3']], ['location' => ['reference' => $a.'Location/3/_history/2']]],
+            ]],
+            ['fullUrl' => $a.'Condition/9', 'resource' => ['resourceType' => 'Condition', 'id' => '9', 'code' => ['text' => 'Synthetic condition at hospital A']]],
+            ['fullUrl' => $a.'Location/3', 'resource' => ['resourceType' => 'Location', 'id' => '3', 'name' => 'Synthetic ward at hospital A']],
+            ['fullUrl' => $b.'Location/3', 'resource' => ['resourceType' => 'Location', 'id' => '3', 'name' => 'Synthetic ward at hospital B']],
+            // Hospital B's own visit names its ward by a relative reference: B's, not A's.
+            ['fullUrl' => $b.'Encounter/77', 'resource' => [
+                'resourceType' => 'Encounter', 'id' => '77', 'status' => 'finished',
+                'period' => ['start' => '2026-01-22'], 'type' => [['text' => 'Synthetic visit at hospital B']],
+                'location' => [['location' => ['reference' => 'Location/3']]],
+            ]],
+            // Hospital B's Encounter/42 is not hospital A's.
+            ['fullUrl' => $b.'ClinicalImpression/7', 'resource' => [
+                'resourceType' => 'ClinicalImpression', 'id' => '7', 'status' => 'completed', 'date' => '2026-01-23',
+                'encounter' => ['reference' => $b.'Encounter/42'], 'summary' => 'Synthetic assessment at hospital B',
+            ]],
+            // The same base and Type/id, at a version, is hospital A's.
+            ['fullUrl' => $a.'ClinicalImpression/8', 'resource' => [
+                'resourceType' => 'ClinicalImpression', 'id' => '8', 'status' => 'completed',
+                'encounter' => ['reference' => $a.'Encounter/42/_history/3'], 'summary' => 'Synthetic assessment at hospital A',
+            ]],
+        ]];
+
+        app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+
+        $visits = PhrOfficeVisit::query()->where('patient_id', $patient->id)->get()->keyBy('external_id');
+        $this->assertEqualsCanonicalizing(['Encounter/42', 'Encounter/77', 'ClinicalImpression/7'], $visits->keys()->all());
+        $atA = $visits['Encounter/42'];
+        $this->assertSame('Synthetic assessment at hospital A', $atA->assessment);
+        $this->assertSame(['Synthetic diagnosis at hospital B'], array_column($atA->encounter_diagnoses ?? [], 'name'));
+        $this->assertSame('Synthetic ward at hospital A', $atA->location);
+        $this->assertSame('Synthetic ward at hospital B', $visits['Encounter/77']->location);
+        $this->assertSame('Synthetic assessment at hospital B', $visits['ClinicalImpression/7']->assessment);
+    }
+
     public function test_a_pending_ehi_proposal_s_target_digest_survives_the_new_columns_until_one_is_set(): void
     {
         $patient = $this->patient();
@@ -395,6 +558,38 @@ final class PhrEncounterCoreTest extends TestCase
                 </encompassingEncounter>
               </componentOf>
               {$section}
+            </ClinicalDocument>
+            XML;
+    }
+
+    /**
+     * A vendor's Encounters section whose table names no complaint or assessment
+     * column, read by position as one, and whose Encounter Activity states neither.
+     */
+    private function vendorEncounterDocument(): string
+    {
+        return <<<'XML'
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ClinicalDocument xmlns="urn:hl7-org:v3">
+              <id root="2.25.4230"/>
+              <title>Synthetic Health Summary</title>
+              <component><structuredBody><component><section>
+                <templateId root="2.16.840.1.113883.10.20.22.2.22.1" extension="2015-08-01"/>
+                <code code="46240-8" codeSystem="2.16.840.1.113883.6.1"/>
+                <title>Encounters</title>
+                <text><table>
+                  <thead><tr><th>Date</th><th>Visit</th><th>Clinician</th><th>Concern</th><th>Impression</th></tr></thead>
+                  <tbody><tr ID="synthetic-visit-row"><td>2026-01-14</td><td>Synthetic office visit</td><td>Synthetic Clinician</td><td>Synthetic concern</td><td>Synthetic impression</td></tr></tbody>
+                </table></text>
+                <entry typeCode="DRIV"><encounter classCode="ENC" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.49" extension="2015-08-01"/>
+                  <id root="2.25.4231" extension="synthetic-visit"/>
+                  <code nullFlavor="OTH"><originalText>Synthetic office visit</originalText></code>
+                  <text><reference value="#synthetic-visit-row"/></text>
+                  <effectiveTime value="20260114"/>
+                  <performer><assignedEntity><id nullFlavor="NI"/><assignedPerson><name>Synthetic Clinician</name></assignedPerson></assignedEntity></performer>
+                </encounter></entry>
+              </section></component></structuredBody></component>
             </ClinicalDocument>
             XML;
     }

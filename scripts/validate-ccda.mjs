@@ -78,8 +78,11 @@ const expectedWarnings = [
 // validation. The Result Organizer / Observation value-set assertions are covered by
 // PhrCcdaResultEntriesTest, which checks each emitted code against the value set.
 const expectedIgnored = [
-    // Encounter Diagnosis and its Problem Observation: covered by PhrCcdaEncounterEntriesTest.
+    // Encounter Diagnosis and its Problem Observation, and the Indication that states a
+    // visit's chief complaint: covered by PhrCcdaEncounterEntriesTest.
     ['EncounterDiagnosis-errors', 'EncounterDiagnosis-errors-statusCode', 'SHALL be selected from ValueSet ActStatus'],
+    ['Indication-errors', 'Indication-errors-statusCode', 'SHALL be selected from ValueSet ActStatus'],
+    ['Indication-warnings', 'Indication-warnings-code', 'SHOULD be selected from ValueSet ProblemType'],
     ['ProblemObservation-errors', 'ProblemObservation-errors-statusCode', 'SHALL be selected from ValueSet ActStatus'],
     ['ProblemObservation-warnings', 'ProblemObservation-warnings-code', 'SHOULD be selected from ValueSet ProblemType'],
     ['ResultObservation-errors', 'ResultObservation-errors-code.nullFlavor', 'SHALL be selected from ValueSet CDANullFlavor'],

@@ -69,6 +69,19 @@ abstract class PhrCcdaSectionReader
     abstract public function narrativeRecord(array $cells): array;
 
     /**
+     * Fields a row read from this section keeps when a later reading of its entry
+     * states none (a null), instead of being cleared. None by default: an entry says
+     * everything it knows, and a value the narrative-table reader took by position is
+     * the error the entry corrects.
+     *
+     * @return list<string>
+     */
+    public function keptWhenUnstated(): array
+    {
+        return [];
+    }
+
+    /**
      * @param  list<string>  $cells
      */
     public function narrativeId(array $cells): string
