@@ -37,11 +37,14 @@ final class AgentClinicalRecordVersion
         if ($record instanceof PhrMedicationFill) {
             unset($attributes['updated_at']);
         }
-        // A read loads a log with its entry count and latest entry time. They are
-        // its entries', not its own columns: a log loaded without them, or a new
-        // entry, must not change the log's version.
+        // A log's version is what the log itself says. A read loads it with its entry count
+        // and latest entry time, which are its entries'. Its updated_at also moves whenever an
+        // entry is added, edited or deleted (the entry touches its log, so a client syncing on
+        // updated_at sees the log change), but that is not the log's own change and must not
+        // refuse a client's health_logs.update (#446); an edit of the log's own fields still
+        // changes the hash. name_reserved only mirrors deleted_at for the unique index (#444).
         if ($record instanceof PhrHealthLog) {
-            unset($attributes['entries_count'], $attributes['latest_entry_at']);
+            unset($attributes['entries_count'], $attributes['latest_entry_at'], $attributes['updated_at'], $attributes['name_reserved']);
         }
         // A document's addendum or amendment link is a row of its own (phr#409) but part of
         // what the document says: a link-only change must move the version, even within

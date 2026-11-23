@@ -54,7 +54,8 @@ class MeritainEobImporter
                 }
 
                 $externalId = 'eob:meritain:'.$sha256;
-                if (PhrEob::query()
+                // A claim a person deleted stays deleted: importing it again skips it (#444).
+                if (PhrEob::withTrashed()
                     ->where('patient_id', $patient->id)
                     ->where('import_source', self::IMPORT_SOURCE)
                     ->where('external_id', $externalId)
@@ -71,7 +72,7 @@ class MeritainEobImporter
                 }
 
                 $claimFingerprint = $this->fingerprint->fromParsed($parsed);
-                if (isset($seenClaimFingerprints[$claimFingerprint]) || PhrEob::query()
+                if (isset($seenClaimFingerprints[$claimFingerprint]) || PhrEob::withTrashed()
                     ->where('patient_id', $patient->id)
                     ->where('import_source', self::IMPORT_SOURCE)
                     ->where('claim_fingerprint', $claimFingerprint)

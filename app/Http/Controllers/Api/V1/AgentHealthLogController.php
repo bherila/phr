@@ -77,7 +77,10 @@ final class AgentHealthLogController extends Controller
         ));
     }
 
-    /** As the browser: the log and its entries are removed outright. */
+    /**
+     * As the browser: the log, and every entry still in it, is soft-deleted (#444). The
+     * response is the tombstone changes.list reports from now on; a repeat is unchanged.
+     */
     public function destroy(DeleteAgentRecordRequest $request, int $patient, int $healthLog): JsonResponse
     {
         $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user('api')?->id);
@@ -197,11 +200,14 @@ final class AgentHealthLogController extends Controller
         ));
     }
 
-    /** As the browser: the entry is removed outright. */
+    /**
+     * As the browser: the entry is soft-deleted (#444). A repeat is unchanged, even once
+     * its log has been deleted too, so the log is found whether or not it stands.
+     */
     public function destroyEntry(DeleteAgentRecordRequest $request, int $patient, int $healthLog, int $entry): JsonResponse
     {
         $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user('api')?->id);
-        $resolvedLog = $this->healthLogs->log($resolvedPatient->id, $healthLog);
+        $resolvedLog = $this->healthLogs->logsQuery($resolvedPatient->id)->withTrashed()->findOrFail($healthLog);
         $result = $this->mutations->deleteEntry($resolvedPatient, $resolvedLog, $entry, $request->expectedVersion());
 
         return response()->json([

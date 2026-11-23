@@ -203,6 +203,14 @@
             "clinical:write"
         ]
     },
+    "eobs.delete": {
+        "available": true,
+        "scope": "clinical:delete",
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ]
+    },
     "medication_fills.resolve_duplicate": {
         "available": true,
         "scope": "clinical:write",

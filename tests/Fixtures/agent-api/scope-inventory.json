@@ -184,6 +184,13 @@
             "clinical:read"
         ]
     },
+    "eobs.delete": {
+        "scopes": [
+            "clinical:read",
+            "clinical:delete"
+        ],
+        "scope_rule": "all"
+    },
     "eobs.get": {
         "scopes": [
             "clinical:read",

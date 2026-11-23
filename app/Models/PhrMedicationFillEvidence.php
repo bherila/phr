@@ -85,4 +85,10 @@ class PhrMedicationFillEvidence extends Model
     {
         return $this->belongsTo(PhrMedicationFill::class, 'fill_id');
     }
+
+    /** @return BelongsTo<PhrEobLine, $this> */
+    public function eobLine(): BelongsTo
+    {
+        return $this->belongsTo(PhrEobLine::class, 'eob_line_id');
+    }
 }

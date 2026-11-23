@@ -5,12 +5,15 @@ namespace App\Support\AgentApi;
 use App\Models\PhrAllergy;
 use App\Models\PhrCondition;
 use App\Models\PhrDocument;
+use App\Models\PhrEob;
 use App\Models\PhrEpisode;
 use App\Models\PhrHealthLog;
+use App\Models\PhrHealthLogEntry;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
@@ -108,11 +111,39 @@ final class AgentRecordSearchCatalog
             'summary' => ['title'], 'q' => ['title', 'reason'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
             'sources' => ['import_source'], 'review' => ['review_status'], 'source_document' => true,
         ],
+        // What happened to a home medication during a stay (#414); its summary names the
+        // action and phase (project()). Soft-deleted, so changes.list carries its tombstones.
+        'medication-transitions' => [
+            'model' => PhrMedicationTransition::class,
+            'event' => ['created_at'],
+            'summary' => ['action'], 'q' => ['note'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
+            'sources' => ['import_source'], 'review' => ['review_status'], 'source_document' => true,
+        ],
         'health-logs' => [
             'model' => PhrHealthLog::class,
             'event' => ['created_at'],
             'summary' => ['name'], 'q' => ['name', 'description', 'kind'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
             'sources' => [], 'review' => [], 'source_document' => false,
+        ],
+        // Each entry of a health log, dated when it happened (#444).
+        'health-log-entries' => [
+            'model' => PhrHealthLogEntry::class,
+            'event' => ['occurred_at', 'created_at'],
+            'summary' => ['title'], 'q' => ['title', 'notes'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
+            'sources' => [], 'review' => [], 'source_document' => false,
+        ],
+        // Explanation-of-benefit claims (#444), dated by processing. Header columns only:
+        // the raw text, parser payload and member identifiers are never read here.
+        'eobs' => [
+            'model' => PhrEob::class,
+            'event' => ['processed_date', 'submission_date', 'print_date', 'created_at'],
+            'summary' => ['provider_name', 'claim_number'], 'q' => ['provider_name', 'claim_number', 'carrier', 'plan_name'],
+            'provider' => ['provider_name'], 'facility' => [], 'codes' => [], 'code_arrays' => [],
+            'sources' => ['import_source'], 'review' => ['review_status'], 'source_document' => true,
+            'columns' => [
+                'id', 'patient_id', 'source_document_id', 'import_source', 'claim_number', 'claim_type', 'carrier', 'plan_name',
+                'provider_name', 'submission_date', 'print_date', 'processed_date', 'review_status', 'created_at', 'updated_at', 'deleted_at',
+            ],
         ],
         // Metadata only, behind documents:read. q matches the title and summary:
         // a LIKE over extracted text (up to 1 MiB a row) is a full scan on every
@@ -135,7 +166,7 @@ final class AgentRecordSearchCatalog
      * How many types a request may name: all of them. records.search,
      * timeline.list and changes.list (REST and MCP) declare this bound.
      */
-    public const int RESOURCE_TYPE_COUNT = 12;
+    public const int RESOURCE_TYPE_COUNT = 15;
 
     /** @return list<string> */
     public static function ids(): array

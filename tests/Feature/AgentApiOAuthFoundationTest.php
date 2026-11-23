@@ -303,6 +303,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'eobs.upsert',
             'eobs.update',
             'eob_lines.list',
+            'eobs.delete',
             'eob_lines.get',
             'evidence.links',
             'ndc.lookup',

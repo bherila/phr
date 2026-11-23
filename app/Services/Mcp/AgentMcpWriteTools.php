@@ -485,6 +485,15 @@ final readonly class AgentMcpWriteTools
     }
 
     /** @return array<string, mixed> */
+    public function eobsDelete(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $eob_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+    ): array {
+        return $this->api->eobDelete($patient_id, $eob_id, $expected_version)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function healthLogsCreate(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $external_id,

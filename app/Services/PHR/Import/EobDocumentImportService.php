@@ -5,12 +5,14 @@ namespace App\Services\PHR\Import;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrPatient;
+use App\Services\PHR\Eob\EobWriteService;
 use App\Support\PHR\PhrReviewStatus;
 use App\Support\Storage\LocalObjectFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * Imports one stored document as an EOB with the server's own parsers, when it
@@ -110,10 +112,14 @@ final class EobDocumentImportService
     {
         $eob = DB::transaction(function () use ($patient, $fingerprint, $source, $externalId, $create): array {
             PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->first();
-            $existing = PhrEob::query()->where('patient_id', $patient->id)
+            $existing = PhrEob::withTrashed()->where('patient_id', $patient->id)
                 ->where(fn ($match) => $match->where('claim_fingerprint', $fingerprint)
                     ->orWhere(fn ($same) => $same->where('import_source', $source)->where('external_id', $externalId)))
-                ->orderBy('id')->first();
+                ->orderByRaw('CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END')->orderBy('id')->first();
+            if ($existing instanceof PhrEob && $existing->trashed()) {
+                // A claim a person deleted stays deleted (#444): reading it again brings nothing back.
+                throw new ConflictHttpException(EobWriteService::DELETED_CLAIM);
+            }
             if ($existing instanceof PhrEob) {
                 return [$existing, self::UNCHANGED];
             }

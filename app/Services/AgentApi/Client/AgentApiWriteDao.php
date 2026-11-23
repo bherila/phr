@@ -272,6 +272,11 @@ final readonly class AgentApiWriteDao
         ));
     }
 
+    public function eobDelete(int $patientId, int $eobId, string $expectedVersion): AgentApiPayload
+    {
+        return $this->deletion("patients/{$patientId}/eobs/{$eobId}", $expectedVersion);
+    }
+
     public function medicationFillResolveDuplicate(int $patientId, int $fillId, string $action, string $expectedVersion, ?int $candidateFillId): AgentApiPayload
     {
         return AgentApiPayload::item($this->transport->send(

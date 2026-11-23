@@ -32,7 +32,8 @@ final readonly class EobCorrectionHistory
             foreach (DB::table('phr_eobs')->where('patient_id', $patientId)->select('id')->orderBy('id')->lazyById(PhrNativeSnapshotService::chunkSize(), 'id') as $candidate) {
                 // Hydrate just one legacy candidate before the native per-record
                 // preflight: oversized old JSON is split into bounded rows here.
-                $eob = PhrEob::query()->where('patient_id', $patientId)->lockForUpdate()->findOrFail($candidate->id);
+                // A deleted EOB (#444) keeps its history, so it is normalized too.
+                $eob = PhrEob::withTrashed()->where('patient_id', $patientId)->lockForUpdate()->findOrFail($candidate->id);
                 $this->normalize($eob);
             }
         });

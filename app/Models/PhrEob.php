@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @property int $id
@@ -27,12 +29,30 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $processed_date
  * @property array<string, mixed>|null $parsed_data
  * @property string $review_status
+ * @property Carbon|null $deleted_at
  * @property-read Collection<int, PhrEobLine> $lines
+ *
+ * A deleted EOB (#444) is soft-deleted: it leaves every read, list, export and the
+ * fill linker, and changes.list reports it as a tombstone. What hangs off it stays
+ * stored, unchanged, and stops counting, as for every other soft-deleted record:
+ * - its lines and correction history are reached only through the claim, so they
+ *   leave every read with it ({@see PhrEobLine::scopeOnStandingClaims()} for the
+ *   paths that reach a line directly);
+ * - visit and procedure links (phr_office_visit_eobs, phr_procedure_eobs) stay,
+ *   and every read of them leaves the deleted claim out;
+ * - a fill a person or client linked to one of its lines keeps that evidence row,
+ *   which no read reports any more, so the fill is touched for clients syncing on
+ *   updated_at; an automatic link is the linker's own derived row, and the linker,
+ *   which no longer sees the claim, withdraws it after the delete commits.
+ * Keeping the rows rather than removing them keeps a soft delete what it is
+ * everywhere else, and a native backup holds the deleted claim with its links
+ * exactly as they were.
  */
 class PhrEob extends Model
 {
     use HasPublicId;
     use SerializesDatesAsLocal;
+    use SoftDeletes;
 
     protected $fillable = [
         'patient_id',
@@ -90,6 +110,17 @@ class PhrEob extends Model
             }
         });
         static::deleted($changed);
+        static::softDeleted(static function (self $eob): void {
+            // The fills a person or client linked to this claim no longer show the link.
+            DB::table('phr_medication_fills')
+                ->where('patient_id', $eob->patient_id)
+                ->whereIn('id', static fn ($evidence) => $evidence->select('fill_id')->from('phr_medication_fill_evidence')
+                    ->where('patient_id', $eob->patient_id)
+                    ->whereNotIn('source_kind', PhrMedicationFillEvidence::LINKER_KINDS)
+                    ->whereIn('eob_line_id', static fn ($lines) => $lines->select('id')->from('phr_eob_lines')
+                        ->where('patient_id', $eob->patient_id)->where('eob_id', $eob->id)))
+                ->update(['updated_at' => $eob->deleted_at]);
+        });
     }
 
     protected function casts(): array
@@ -113,6 +144,7 @@ class PhrEob extends Model
             'total_plan_payment' => 'decimal:2',
             'total_patient_responsibility' => 'decimal:2',
             'parsed_data' => 'array',
+            'deleted_at' => 'datetime',
         ];
     }
 

@@ -45,7 +45,8 @@ class DeltaDentalEobImporter
             try {
                 $claimNumber = (string) $parsed['claim_number'];
                 $externalId = 'eob:delta-dental:'.$claimNumber;
-                if (PhrEob::query()
+                // A claim a person deleted stays deleted: importing it again skips it (#444).
+                if (PhrEob::withTrashed()
                     ->where('patient_id', $patient->id)
                     ->where('import_source', self::IMPORT_SOURCE)
                     ->where('external_id', $externalId)
@@ -67,7 +68,7 @@ class DeltaDentalEobImporter
                 $parsed = $this->amounts->reconcile($parsed, $pdfText);
 
                 $claimFingerprint = $this->fingerprint->fromParsed($parsed);
-                if (PhrEob::query()
+                if (PhrEob::withTrashed()
                     ->where('patient_id', $patient->id)
                     ->where('import_source', self::IMPORT_SOURCE)
                     ->where('claim_fingerprint', $claimFingerprint)

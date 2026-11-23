@@ -347,6 +347,7 @@
                 "documents.upload_finalize",
                 "eob_lines.get",
                 "eob_lines.list",
+                "eobs.delete",
                 "eobs.get",
                 "eobs.import",
                 "eobs.list",
@@ -468,9 +469,9 @@
                 "openWorldHint": false
             },
             "description": "List bounded clinical change states for one patient. Reuse the returned watermark with every cursor page; deleted and retracted records are tombstones.",
-            "inputSchema": "sha256:1bed9d6d8b0b0d9ef1d54b7af789111b7567f52d52dc8518cff8424e95749eee",
+            "inputSchema": "sha256:29a51c238c12ee4a24d3468d90380411f01a6e4360d27d1094c5a03361c11879",
             "name": "changes.list",
-            "outputSchema": "sha256:b5ac8bacc51755995c999efb836bf02d62f53d601ebf2c513450f6a52ed780e4",
+            "outputSchema": "sha256:e53532272ff7313697b59aac2fba39fd8d5a5d998a1d2d9206ce6cb999b58315",
             "title": "List changes"
         },
         "claim_genai_request": {
@@ -850,6 +851,19 @@
             "outputSchema": "sha256:4de99f164295ccbfa1bfbd7c7fc41ab4bb56d10e74a2f1b8f31c9705ed5ac0b1",
             "title": "List EOB lines"
         },
+        "eobs.delete": {
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Delete one EOB by its ID and current version (read it with eobs_get), whoever wrote it, a person in PHR included. This is PHR's own delete: the claim and its lines leave every read and changes_list reports it as deleted; visits and procedures no longer list it, fills linked to it no longer show it, and the same claim is not imported or written again. Call it only when the person has asked for this claim to be removed, never to tidy up a duplicate. An EOB already deleted answers outcome unchanged; a stale version is refused, so read the EOB again.",
+            "inputSchema": "sha256:52c135da500f2cba40a9e532d2dcbdbcbe8f9cac2d9bb2b6efc1121036a0618d",
+            "name": "eobs.delete",
+            "outputSchema": "sha256:a53d6a9e6bb6c5665492f87c84c5f78e1a4088e3f7ee5ac158f55e7dbc2a7a44",
+            "title": "Delete an EOB"
+        },
         "eobs.get": {
             "annotations": {
                 "readOnlyHint": true,
@@ -1065,7 +1079,7 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "Delete one health log entry by its ID and current version (read it with health_log_entries_get), whoever recorded it. As in PHR, the entry is removed outright, so a repeat answers not found. Call it only when the person has asked for this entry to be removed.",
+            "description": "Delete one health log entry by its ID and current version (read it with health_log_entries_get), whoever recorded it. This is PHR's own delete: the entry leaves every read and changes_list reports it as deleted. Call it only when the person has asked for this entry to be removed. An entry already deleted answers outcome unchanged; a stale version is refused, so read the entry again.",
             "inputSchema": "sha256:a42f873983461612459d2ec874f9e1402644e999e5fbb099a0521b6e8040c789",
             "name": "health_log_entries.delete",
             "outputSchema": "sha256:a53d6a9e6bb6c5665492f87c84c5f78e1a4088e3f7ee5ac158f55e7dbc2a7a44",
@@ -1130,7 +1144,7 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "Delete one health log and every entry in it by its ID and current version (read it with clinical_get, resource_type health-logs), whoever created it. As in PHR, the log is removed outright, so a repeat answers not found. Call it only when the person has asked for this log to be removed.",
+            "description": "Delete one health log and every entry in it by its ID and current version (read it with clinical_get, resource_type health-logs), whoever created it. This is PHR's own delete: the log and its entries leave every read and changes_list reports them as deleted, and the name is free for a new log. Call it only when the person has asked for this log to be removed. A log already deleted answers outcome unchanged; a stale version is refused, so read the log again.",
             "inputSchema": "sha256:8f807901bde79b9e57fd285a023350c42cba719d1518a6a905f323452a7a2041",
             "name": "health_logs.delete",
             "outputSchema": "sha256:a53d6a9e6bb6c5665492f87c84c5f78e1a4088e3f7ee5ac158f55e7dbc2a7a44",
@@ -1664,7 +1678,7 @@
                 "openWorldHint": false
             },
             "description": "Search clinical records using the versioned REST filters and cursor pagination.",
-            "inputSchema": "sha256:0d14c428134dfff2d3f0b4cc9ed808032822e3136b30f5bbf40c002547973906",
+            "inputSchema": "sha256:6bc672763978aac43e867fb387b083ad0f43cb2122634985273d5feebafb5208",
             "name": "records.search",
             "outputSchema": "sha256:8fa02f358d25d1e108c396ae2ff9906f5a3da46399fd68f199e3544b4e146cad",
             "title": "Search records"
@@ -1729,7 +1743,7 @@
                 "openWorldHint": false
             },
             "description": "List a patient timeline using the versioned REST filters and cursor pagination.",
-            "inputSchema": "sha256:0d14c428134dfff2d3f0b4cc9ed808032822e3136b30f5bbf40c002547973906",
+            "inputSchema": "sha256:6bc672763978aac43e867fb387b083ad0f43cb2122634985273d5feebafb5208",
             "name": "timeline.list",
             "outputSchema": "sha256:8fa02f358d25d1e108c396ae2ff9906f5a3da46399fd68f199e3544b4e146cad",
             "title": "List timeline"

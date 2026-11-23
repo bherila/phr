@@ -79,6 +79,21 @@ class ClinicalEobController extends Controller
         ]);
     }
 
+    /**
+     * A person deletes an EOB (#444): soft-deleted, like every record they delete. Its lines,
+     * correction history, and visit, procedure and fill links stay stored and stop counting
+     * (PhrEob), and an agent's eobs.delete does exactly this.
+     */
+    public function destroy(Request $request, int $patient, int $eob): Response
+    {
+        $resolved = $this->writablePatient($request, $patient);
+        DB::transaction(function () use ($resolved, $eob): void {
+            PhrEob::query()->where('patient_id', $resolved->id)->lockForUpdate()->findOrFail($eob)->delete();
+        });
+
+        return response()->noContent();
+    }
+
     public function linkOfficeVisit(Request $request, int $patient, int $visit, int $eob): JsonResponse
     {
         $resolvedPatient = $this->writablePatient($request, $patient);

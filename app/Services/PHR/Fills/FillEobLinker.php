@@ -180,11 +180,13 @@ class FillEobLinker
             ])->all();
         $liveFills = array_flip(array_column($fills, 'id'));
 
-        $eobs = DB::table('phr_eobs')->where('patient_id', $patientId)
+        // A deleted claim (#444) is not a claim to link: like a rejected one, a person's link
+        // to it stays stored and no longer counts, and the automatic links to it are withdrawn.
+        $eobs = DB::table('phr_eobs')->where('patient_id', $patientId)->whereNull('deleted_at')
             ->where('claim_type', 'pharmacy')->where('review_status', '!=', PhrReviewStatus::REJECTED)
             ->get(['id', 'claim_number', 'claim_fingerprint', 'processed_date', 'total_charges', 'provider_name']);
         $lines = DB::table('phr_eob_lines')->where('patient_id', $patientId)
-            ->whereIn('eob_id', fn ($query) => $query->select('id')->from('phr_eobs')->where('patient_id', $patientId)
+            ->whereIn('eob_id', fn ($query) => $query->select('id')->from('phr_eobs')->where('patient_id', $patientId)->whereNull('deleted_at')
                 ->where('claim_type', 'pharmacy')->where('review_status', '!=', PhrReviewStatus::REJECTED))
             ->orderBy('line_number')->orderBy('id')
             ->get(['id', 'eob_id', 'service_start', 'total_charges'])->groupBy('eob_id');

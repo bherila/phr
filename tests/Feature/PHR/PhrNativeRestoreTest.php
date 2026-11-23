@@ -8,6 +8,8 @@ use App\Models\PhrDocument;
 use App\Models\PhrDocumentRelation;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
+use App\Models\PhrHealthLog;
+use App\Models\PhrHealthLogEntry;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
@@ -2147,6 +2149,81 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(3, PhrDocument::query()->where('patient_id', $olderTarget)->count());
         $this->assertSame([null], PhrDocument::query()->where('patient_id', $olderTarget)->distinct()->pluck('loinc_code')->all(), 'an older archive states no note metadata');
         $this->assertSame(0, PhrDocumentRelation::query()->where('patient_id', $olderTarget)->count());
+        @unlink($current);
+        @unlink($older);
+    }
+
+    public function test_deleted_eobs_and_health_logs_survive_a_round_trip_and_an_older_archive_restores_without_their_columns(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $base = ['patient_id' => $patient->id, 'user_id' => $owner->id];
+        $visit = PhrOfficeVisit::query()->create([...$base, 'visit_date' => '2026-02-09', 'review_status' => PhrReviewStatus::CONFIRMED]);
+        $eob = PhrEob::query()->create([...$base, 'import_source' => 'synthetic', 'external_id' => 'eob-1', 'claim_type' => 'medical', 'review_status' => PhrReviewStatus::CONFIRMED]);
+        PhrEobLine::query()->create(['eob_id' => $eob->id, 'patient_id' => $patient->id, 'line_number' => 1, 'procedure_code' => '99213']);
+        DB::table('phr_office_visit_eobs')->insert(['patient_id' => $patient->id, 'office_visit_id' => $visit->id, 'eob_id' => $eob->id, 'created_at' => now(), 'updated_at' => now()]);
+        $eob->delete();
+        // A deleted log and a standing one of the same name (#444), each with an entry.
+        $deletedLog = PhrHealthLog::query()->create([...$base, 'name' => 'Synthetic log', 'kind' => 'custom']);
+        PhrHealthLogEntry::query()->create([...$base, 'health_log_id' => $deletedLog->id, 'occurred_at' => '2026-02-01 09:30:00']);
+        $deletedLog->delete();
+        $standingLog = PhrHealthLog::query()->create([...$base, 'name' => 'Synthetic log', 'kind' => 'symptom']);
+        PhrHealthLogEntry::query()->create([...$base, 'health_log_id' => $standingLog->id, 'occurred_at' => '2026-02-02 09:30:00']);
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+        $target = (int) $attempt->refresh()->target_patient_root_id;
+
+        $restoredEob = DB::table('phr_eobs')->where('patient_id', $target)->sole();
+        $this->assertNotNull($restoredEob->deleted_at);
+        $this->assertSame(1, DB::table('phr_eob_lines')->where('eob_id', $restoredEob->id)->count());
+        $this->assertSame(1, DB::table('phr_office_visit_eobs')->where('eob_id', $restoredEob->id)->count());
+        $logs = DB::table('phr_health_logs')->where('patient_id', $target)->orderBy('kind')->get();
+        $this->assertSame([['custom', true, false], ['symptom', false, true]], $logs->map(static fn (object $log): array => [$log->kind, $log->deleted_at !== null, $log->name_reserved !== null])->all());
+        $entries = DB::table('phr_health_log_entries')->where('patient_id', $target)->orderBy('occurred_at')->pluck('deleted_at');
+        $this->assertNotNull($entries[0]);
+        $this->assertNull($entries[1]);
+        $this->assertSame([], $this->foreignKeyViolations());
+        // Restoring it again recognises every row.
+        $again = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(['create' => 0, 'skip' => 2, 'block' => 0], $again->plan_counts_json['tables']['phr_health_logs']);
+        $this->assertSame(['create' => 0, 'skip' => 1, 'block' => 0], $again->plan_counts_json['tables']['phr_eobs']);
+
+        // An archive written before #444 has no deleted_at on these tables and no name_reserved:
+        // every row it holds stood, and restores standing.
+        $olderPatient = $this->patientWithOwnerGrant((int) $owner->id);
+        $olderBase = ['patient_id' => $olderPatient->id, 'user_id' => $owner->id];
+        PhrEob::query()->create([...$olderBase, 'import_source' => 'synthetic', 'external_id' => 'eob-older', 'claim_type' => 'medical', 'review_status' => PhrReviewStatus::CONFIRMED]);
+        $olderLog = PhrHealthLog::query()->create([...$olderBase, 'name' => 'Synthetic older log', 'kind' => 'custom']);
+        PhrHealthLogEntry::query()->create([...$olderBase, 'health_log_id' => $olderLog->id, 'occurred_at' => '2026-02-01 09:30:00']);
+        $older = $this->archiveCopy($olderPatient, (int) $owner->id);
+        foreach (['phr_eobs' => ['deleted_at'], 'phr_health_logs' => ['deleted_at', 'name_reserved'], 'phr_health_log_entries' => ['deleted_at']] as $table => $columns) {
+            $this->mutateTableRecords($older, $table, static function (array $record) use ($columns): array {
+                foreach ($columns as $column) {
+                    unset($record['attributes'][$column]);
+                }
+
+                return $record;
+            });
+        }
+        // Unchanged rows are recognised rather than conflicting...
+        $recognised = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $recognised->status, (string) $recognised->failure_category);
+        $this->assertSame(['create' => 0, 'skip' => 1, 'block' => 0], $recognised->plan_counts_json['tables']['phr_health_logs']);
+        // ...and restore as they stood.
+        DB::table('phr_patients')->where('id', $olderPatient->id)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh(), (int) $owner->id);
+        $olderTarget = (int) $olderAttempt->refresh()->target_patient_root_id;
+        $this->assertNull(DB::table('phr_eobs')->where('patient_id', $olderTarget)->sole()->deleted_at);
+        $restoredLog = DB::table('phr_health_logs')->where('patient_id', $olderTarget)->sole();
+        $this->assertNull($restoredLog->deleted_at);
+        $this->assertTrue((bool) $restoredLog->name_reserved);
+        $this->assertNull(DB::table('phr_health_log_entries')->where('patient_id', $olderTarget)->sole()->deleted_at);
         @unlink($current);
         @unlink($older);
     }

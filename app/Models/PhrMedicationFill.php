@@ -205,9 +205,16 @@ class PhrMedicationFill extends Model
         return $this->belongsTo(PhrDocument::class, 'source_document_id');
     }
 
-    /** @return HasMany<PhrMedicationFillEvidence, $this> */
+    /**
+     * The evidence a read reports. A line of a deleted EOB keeps its evidence row (#444),
+     * which no longer counts: the fill no longer shows that link.
+     *
+     * @return HasMany<PhrMedicationFillEvidence, $this>
+     */
     public function evidence(): HasMany
     {
-        return $this->hasMany(PhrMedicationFillEvidence::class, 'fill_id');
+        return $this->hasMany(PhrMedicationFillEvidence::class, 'fill_id')
+            ->where(static fn ($evidence) => $evidence->whereNull('eob_line_id')
+                ->orWhereHas('eobLine', static fn ($lines) => $lines->onStandingClaims()));
     }
 }

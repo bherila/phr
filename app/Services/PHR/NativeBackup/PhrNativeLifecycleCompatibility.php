@@ -52,7 +52,11 @@ final class PhrNativeLifecycleCompatibility
             'administration_status',
         ],
         // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
+        // An EOB's deleted_at (#444) is a lifecycle column (COLUMNS), tolerated on every table.
         'phr_eobs' => ['review_status', 'lines_digest', 'correction_revision'],
+        // Whether a log still holds its name (#444): every log of an older archive stood, and
+        // so held it. Its entries' deleted_at, like the log's, is a lifecycle column.
+        'phr_health_logs' => ['name_reserved'],
         // The review status a machine-written document waits in (#408). Older documents were all confirmed.
         // Clinical note metadata (#409): null on every document an older archive holds.
         'phr_documents' => [
@@ -144,6 +148,8 @@ final class PhrNativeLifecycleCompatibility
     private const array LEGACY_VALUES = [
         'phr_eobs' => ['review_status' => 'confirmed', 'correction_revision' => 0],
         'phr_documents' => ['review_status' => 'confirmed'],
+        // A boolean as an archive writes it (PhrNativeRecordCodec): 1.
+        'phr_health_logs' => ['name_reserved' => 1],
     ];
 
     /** @var array<string, list<string>> */

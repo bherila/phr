@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api\V1;
 use App\DataTransferObjects\AgentApi\ClinicalUpsertResult;
 use App\DataTransferObjects\AgentApi\EobUpsertResult;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\DeleteAgentRecordRequest;
 use App\Http\Requests\AgentApi\ImportEobRequest;
 use App\Http\Requests\AgentApi\UpdateEobRequest;
 use App\Http\Requests\AgentApi\UpsertEobRequest;
 use App\Models\PhrDocument;
+use App\Services\AgentApi\AgentRecordDeletionService;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Eob\EobWriteService;
 use App\Services\PHR\Import\EobDocumentImportService;
@@ -17,7 +19,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentMutationResponse;
 use Illuminate\Http\JsonResponse;
 
-/** EOB writes: import a stored document with the server's parsers, or upsert a claim the client read. */
+/** EOB writes: import a stored document with the server's parsers, upsert a claim the client read, or delete one. */
 final class AgentEobController extends Controller
 {
     public function __construct(
@@ -76,6 +78,24 @@ final class AgentEobController extends Controller
         );
 
         return $this->respond($request, (int) $resolved->id, $result);
+    }
+
+    /**
+     * The browser's soft delete of an EOB (#444), whoever wrote it: its lines, correction
+     * history and links stay stored and stop counting (PhrEob). The response is the
+     * tombstone changes.list reports from now on; a repeat is unchanged.
+     */
+    public function destroy(DeleteAgentRecordRequest $request, int $patient, int $eob): JsonResponse
+    {
+        $resolved = $this->accessService->writablePatient($patient, (int) $request->user('api')?->id);
+        $result = app(AgentRecordDeletionService::class)->deleteEob($resolved, $eob, $request->expectedVersion());
+
+        return response()->json([
+            'resource_type' => 'eob',
+            'patient_id' => (int) $resolved->id,
+            'outcome' => $result->outcome,
+            'data' => $result->tombstone(),
+        ]);
     }
 
     private function respond(UpsertEobRequest|UpdateEobRequest $request, int $patientId, EobUpsertResult $result): JsonResponse

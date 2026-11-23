@@ -126,13 +126,16 @@ class PhrHealthLogTest extends TestCase
 
         $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patientId}/health-logs/{$logId}/entries/{$entryId}")
             ->assertNoContent();
-        $this->assertDatabaseMissing('phr_health_log_entries', ['id' => $entryId]);
+        // Soft-deleted (#444): out of every read, kept with its deleted_at.
+        $this->assertSoftDeleted('phr_health_log_entries', ['id' => $entryId]);
+        $this->actingAs($owner)->getJson("/api/phr/patients/{$patientId}/health-logs/{$logId}/entries/{$entryId}")->assertNotFound();
 
         $replacementEntryId = $this->createHealthLogEntry($owner, $patientId, $logId);
         $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patientId}/health-logs/{$logId}")
             ->assertNoContent();
-        $this->assertDatabaseMissing('phr_health_logs', ['id' => $logId]);
-        $this->assertDatabaseMissing('phr_health_log_entries', ['id' => $replacementEntryId]);
+        $this->assertSoftDeleted('phr_health_logs', ['id' => $logId, 'name_reserved' => null]);
+        $this->assertSoftDeleted('phr_health_log_entries', ['id' => $replacementEntryId]);
+        $this->actingAs($owner)->getJson("/api/phr/patients/{$patientId}/health-logs/{$logId}")->assertNotFound();
     }
 
     public function test_nested_ids_are_scoped_to_the_patient_and_health_log(): void

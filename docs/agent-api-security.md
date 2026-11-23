@@ -296,14 +296,42 @@ the record's content. A record already deleted answers `unchanged` whatever vers
 sent, so a retry after a lost response settles; that answer discloses only the
 tombstone the change feed already shows.
 
-Health logs, their entries and respiratory events have no `deleted_at`: the browser
-removes them outright (a log's entries with it, by foreign key). `health_logs.delete`,
-`health_log_entries.delete` and `respiratory_events.delete` do exactly that, so they
-leave no tombstone, and a repeated single delete answers 404. Respiratory events carry no
-version and are deleted by the device's event UUIDs in a batch of at most 500, each
-answering `deleted` or `not_found`, as in the browser. EOBs have no delete in the
-browser or the agent API: their corrections history and claim links have no defined
-soft-delete semantics yet.
+Health logs and their entries are soft-deleted too (#444): `health_logs.delete` and
+`health_log_entries.delete` answer with a tombstone, a repeat answers `unchanged`, and a
+log takes every entry still in it with it, at the same moment, so `changes.list` reports
+a tombstone for each. A log's name is unique for its patient among standing logs only:
+the unique index is `(patient_id, name, name_reserved)`, where `name_reserved` is true
+while the log stands and cleared when it is deleted. MariaDB, SQLite and PostgreSQL all
+treat NULLs as distinct in a unique index, so a deleted log never blocks its name, while
+the database still refuses two standing logs of one name. It is a plain column rather
+than a generated one, because SQLite cannot add a stored generated column to an existing
+table and a native backup restores plain columns as written; an archive written before
+it restores every log as standing.
+
+Respiratory events have no `deleted_at`: the browser removes them outright.
+`respiratory_events.delete` does exactly that, by the device's event UUIDs in a batch of
+at most 500, each answering `deleted` or `not_found`, as in the browser.
+
+EOBs (#444) are soft-deleted in the browser (the EOB page's delete) and by `eobs.delete`
+(`clinical:read` and `clinical:delete`: EOB writes use `clinical:write`, and every clinical
+delete is granted apart from it). The claim leaves every read, list and the fill linker,
+and `changes.list` reports its tombstone. What hangs off it is kept but no longer counts,
+the same rule every soft-deleted record follows, so a native backup holds the claim and
+its links exactly as they were:
+- its lines and correction history stay stored and leave every read with the claim;
+- visit and procedure links (`phr_office_visit_eobs`, `phr_procedure_eobs`) stay, and
+  every read leaves the deleted claim out;
+- a fill a person or client linked to one of its lines keeps that evidence row, which no
+  read reports, and the fill's `updated_at` moves so a syncing client sees the change; the
+  fill linker's own automatic links are derived rows, and the linker, which no longer sees
+  the claim, withdraws them after the delete commits, freeing the fill for another claim;
+- a new link to the claim or one of its lines is refused, and the same claim is not
+  brought back: `eobs.upsert` and `eobs.import` answer 409 for it, by external ID,
+  fingerprint or claim number, and the console importers skip it.
+
+`changes.list`, `records.search` and `timeline.list` follow EOBs, medication transitions,
+health logs and health log entries as well as the clinical types; `resource_type` takes
+at most as many types as there are.
 
 Deleting a patient is not an agent operation. It stays the owner-only browser workflow
 with a deletion preview digest and a typed confirmation. `patients.update` (`patients:read`
@@ -312,7 +340,9 @@ edit allows, except real names, which only a person sets because they route docu
 to a chart; it is versioned like every other update. `health_logs.update` and
 `health_log_entries.update` (`clinical:read` and `clinical:write`) edit a log or entry by
 its current version with the browser's validation. A log's version excludes its entry
-count and latest entry time, so a new entry never makes a held log version stale.
+count, its latest entry time and its `updated_at`, which an entry moves whenever it is
+added, edited or deleted (#446), so no entry change makes a held log version stale; an
+edit of the log's own fields still does.
 
 MCP output schemas are the REST response contract rather than a second one. Each
 tool declares the versioned operation it mirrors, and its schema is the transitive
