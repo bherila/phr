@@ -7,6 +7,7 @@ use Database\Factories\PhrHealthLogEntryFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -23,6 +24,9 @@ use Illuminate\Support\Carbon;
  * @property array<string, mixed>|null $details
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
+ *
+ * Soft-deleted (#444), on its own or with its log.
  */
 class PhrHealthLogEntry extends Model
 {
@@ -30,6 +34,7 @@ class PhrHealthLogEntry extends Model
     use HasFactory;
 
     use SerializesDatesAsLocal;
+    use SoftDeletes;
 
     /** @var list<string> */
     protected $touches = ['healthLog'];
@@ -58,6 +63,7 @@ class PhrHealthLogEntry extends Model
             'intensity' => 'integer',
             'tags' => 'array',
             'details' => 'array',
+            'deleted_at' => 'datetime',
         ];
     }
 

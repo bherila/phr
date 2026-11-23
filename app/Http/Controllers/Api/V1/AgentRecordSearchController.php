@@ -475,6 +475,11 @@ final class AgentRecordSearchController extends Controller
         if ($summary !== null && is_string($category) && ! PhrMedicationCategory::isHomeList($category)) {
             $summary .= ' ('.PhrMedicationCategory::label($category).')';
         }
+        // A transition says what happened and when in the stay: "Held at admission".
+        $phase = $type === 'medication-transitions' ? $record->getAttribute('phase') : null;
+        if ($summary !== null && is_string($phase) && $phase !== '') {
+            $summary = ucfirst($summary).' at '.$phase;
+        }
         $payload = [
             'resource_type' => $type,
             'id' => (int) $record->getKey(),

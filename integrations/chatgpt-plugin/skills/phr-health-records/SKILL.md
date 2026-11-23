@@ -65,13 +65,14 @@ Read the patient's existing records before every write.
   claim it made in error. A record missing from a newer export is not a reason
   to retract; institutions age data out.
 - **Deleting:** only when the person asks you to remove a specific record. The
-  delete tools (clinical.delete, documents.delete, health_logs.delete,
-  health_log_entries.delete, respiratory_events.delete) appear only when the
-  person granted delete access (`clinical:delete`, `documents:delete`), apart
-  from write access. Read the record, confirm with the person, then delete it
-  with its current `version`; it works on any record, whoever wrote it, exactly
-  as deleting it in PHR does. Never delete to tidy up a duplicate or a record a
-  newer import lacks.
+  delete tools (clinical.delete, documents.delete, eobs.delete,
+  health_logs.delete, health_log_entries.delete, respiratory_events.delete)
+  appear only when the person granted delete access (`clinical:delete`,
+  `documents:delete`), apart from write access. Read the record, confirm with
+  the person, then delete it with its current `version`; it works on any
+  record, whoever wrote it, exactly as deleting it in PHR does, and a repeat
+  answers `unchanged`. A deleted EOB is not imported or written again. Never
+  delete to tidy up a duplicate or a record a newer import lacks.
 - **Patients:** editing a patient's details (patients.update, with its current
   `version`) needs `patients:write`. Deleting a patient is never available to
   you: the owner does it in PHR.

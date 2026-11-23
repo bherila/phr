@@ -245,11 +245,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
             'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update',
             'clinical.resolve', 'clinical.retract', 'clinical.delete', 'documents.delete', 'patients.update',
-            'health_logs.update', 'health_logs.delete', 'health_log_entries.update', 'health_log_entries.delete', 'respiratory_events.delete'] as $name) {
+            'health_logs.update', 'health_logs.delete', 'health_log_entries.update', 'health_log_entries.delete', 'respiratory_events.delete', 'eobs.delete'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            81 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            82 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
@@ -259,7 +259,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             'reconciliations.apply',
             'exports.create', 'native_backups.create',
             'claim_genai_request', 'renew_genai_lease', 'complete_genai_request', 'fail_genai_request',
-            'clinical.delete', 'documents.delete', 'health_logs.delete', 'health_log_entries.delete', 'respiratory_events.delete',
+            'clinical.delete', 'documents.delete', 'health_logs.delete', 'health_log_entries.delete', 'respiratory_events.delete', 'eobs.delete',
         ];
         foreach ($tools as $tool) {
             $this->assertSame(

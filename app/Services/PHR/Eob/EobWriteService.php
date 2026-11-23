@@ -15,6 +15,7 @@ use App\Services\PHR\Fills\MedicationFillExternalId;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrReviewStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,13 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 final readonly class EobWriteService
 {
     public const string PARSER_VERSION = 'agent-api-v1';
+
+    /**
+     * A deleted claim (#444) keeps its identity: writing or importing the same claim again,
+     * by its external_id, fingerprint or claim number, is refused rather than bringing it
+     * back, as a clinical upsert refuses a deleted record's external_id.
+     */
+    public const string DELETED_CLAIM = 'This claim was deleted from the patient\'s records. A deleted EOB is not brought back by writing or importing it again.';
 
     public function __construct(
         private AgentClinicalRecordVersion $versions,
@@ -56,8 +64,11 @@ final readonly class EobWriteService
 
             // This connection's own EOB first: a change to a field the fingerprint does not cover
             // (the plan name, the source document) is a correction, not a duplicate.
-            $own = PhrEob::query()->where('patient_id', $patient->id)->where('import_source', $source)->where('external_id', $externalId)->lockForUpdate()->first();
+            $own = PhrEob::withTrashed()->where('patient_id', $patient->id)->where('import_source', $source)->where('external_id', $externalId)->lockForUpdate()->first();
             if ($own instanceof PhrEob) {
+                if ($own->trashed()) {
+                    throw new ConflictHttpException(self::DELETED_CLAIM);
+                }
                 if ($this->withoutFills($claim) == EobClaim::normalize($this->stored($own)) && $own->source_document_id === $documentId) {
                     return [$own, ClinicalUpsertResult::UNCHANGED, ['by' => 'claim_fingerprint', 'import_source' => $own->import_source]];
                 }
@@ -65,7 +76,7 @@ final readonly class EobWriteService
                     throw new ConflictHttpException('An EOB with this external_id exists with different content. Read it (eobs.get) and send its current version as expected_version, or use eobs.update.');
                 }
                 if ($fingerprint !== $own->claim_fingerprint
-                    && PhrEob::query()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->whereKeyNot($own->id)->exists()) {
+                    && PhrEob::withTrashed()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->whereKeyNot($own->id)->exists()) {
                     throw new ConflictHttpException('Another EOB already holds exactly this claim.');
                 }
                 $this->apply($own, $claim, $fingerprint, $documentId);
@@ -73,7 +84,7 @@ final readonly class EobWriteService
                 return [$own->refresh(), ClinicalUpsertResult::UPDATED, null];
             }
 
-            $same = PhrEob::query()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->orderBy('id')->first();
+            $same = $this->standingFirst(PhrEob::withTrashed()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint));
             if ($same instanceof PhrEob) {
                 return [$same, ClinicalUpsertResult::UNCHANGED, ['by' => 'claim_fingerprint', 'import_source' => $same->import_source]];
             }
@@ -82,7 +93,7 @@ final readonly class EobWriteService
             // PDF a parser also reads): never a second copy of one claim.
             $number = $claim['header']['claim_number'];
             if ($number !== null) {
-                $sameClaim = PhrEob::query()
+                $sameClaim = $this->standingFirst(PhrEob::withTrashed()
                     ->where('patient_id', $patient->id)
                     ->where('claim_number', $number)
                     ->where('claim_type', $claim['header']['claim_type'])
@@ -90,8 +101,7 @@ final readonly class EobWriteService
                         $claim['header']['processed_date'] === null,
                         fn ($query) => $query->whereNull('processed_date'),
                         fn ($query) => $query->whereDate('processed_date', $claim['header']['processed_date']),
-                    )
-                    ->orderBy('id')->first();
+                    ));
                 if ($sameClaim instanceof PhrEob) {
                     return [$sameClaim, ClinicalUpsertResult::UNCHANGED, ['by' => 'claim_number', 'import_source' => $sameClaim->import_source]];
                 }
@@ -165,7 +175,7 @@ final readonly class EobWriteService
                 return [$eob, ClinicalUpsertResult::UNCHANGED];
             }
             $other = $fingerprint !== $eob->claim_fingerprint
-                && PhrEob::query()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->whereKeyNot($eob->id)->exists();
+                && PhrEob::withTrashed()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->whereKeyNot($eob->id)->exists();
             if ($other) {
                 throw new ConflictHttpException('Another EOB already holds exactly this claim.');
             }
@@ -186,6 +196,22 @@ final readonly class EobWriteService
         }, 3);
 
         return new EobUpsertResult($written[0], $written[1], $this->versions->for($written[0]), null, $written[0]->lines()->orderBy('line_number')->get(), []);
+    }
+
+    /**
+     * The first match, a standing claim before a deleted one; a deleted claim found here is
+     * refused (DELETED_CLAIM) rather than answered as the claim already held.
+     *
+     * @param  Builder<PhrEob>  $query
+     */
+    private function standingFirst(Builder $query): ?PhrEob
+    {
+        $match = $query->orderByRaw('CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END')->orderBy('id')->first();
+        if ($match instanceof PhrEob && $match->trashed()) {
+            throw new ConflictHttpException(self::DELETED_CLAIM);
+        }
+
+        return $match;
     }
 
     /**

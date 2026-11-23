@@ -4,10 +4,14 @@ namespace App\Services\AgentApi;
 
 use App\DataTransferObjects\AgentApi\AgentDeletionResult;
 use App\Models\PhrDocument;
+use App\Models\PhrEob;
+use App\Models\PhrHealthLog;
+use App\Models\PhrHealthLogEntry;
 use App\Models\PhrPatient;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Closure;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Carbon;
@@ -15,8 +19,9 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
- * An agent's delete of a clinical record or document: the browser's soft delete
- * (`deleted_at`), reached by record ID and current version.
+ * An agent's delete of a clinical record, document, EOB, health log or health log
+ * entry: the browser's soft delete (`deleted_at`), reached by record ID and current
+ * version.
  *
  * It is not retraction. Retraction is a source withdrawing its own claim and stays
  * within the caller's import namespace; a delete removes a record whoever wrote it,
@@ -60,8 +65,38 @@ final readonly class AgentRecordDeletionService
     }
 
     /**
+     * eobs.delete (#444). The claim's lines, correction history and links stay stored and
+     * stop counting, as PhrEob describes; the model's own events touch the fills a person
+     * linked to it and reschedule claim linking.
+     */
+    public function deleteEob(PhrPatient $patient, int $eobId, string $expectedVersion): AgentDeletionResult
+    {
+        return $this->softDelete($patient, PhrEob::class, 'eobs', $eobId, $expectedVersion);
+    }
+
+    /** health_logs.delete (#444): the log, and every entry still in it, with it (PhrHealthLog). */
+    public function deleteHealthLog(PhrPatient $patient, int $healthLogId, string $expectedVersion): AgentDeletionResult
+    {
+        return $this->softDelete($patient, PhrHealthLog::class, 'health-logs', $healthLogId, $expectedVersion);
+    }
+
+    /** health_log_entries.delete (#444), for an entry of the named log only. */
+    public function deleteHealthLogEntry(PhrPatient $patient, int $healthLogId, int $entryId, string $expectedVersion): AgentDeletionResult
+    {
+        return $this->softDelete(
+            $patient,
+            PhrHealthLogEntry::class,
+            'health-log-entries',
+            $entryId,
+            $expectedVersion,
+            constrain: static fn (Builder $query) => $query->where('health_log_id', $healthLogId),
+        );
+    }
+
+    /**
      * @param  class-string<Model>  $modelClass
      * @param  (Closure(Model): void)|null  $afterDelete
+     * @param  (Closure(Builder<Model>): mixed)|null  $constrain  narrows the lookup further (an entry's log)
      */
     private function softDelete(
         PhrPatient $patient,
@@ -70,14 +105,17 @@ final readonly class AgentRecordDeletionService
         int $recordId,
         string $expectedVersion,
         ?Closure $afterDelete = null,
+        ?Closure $constrain = null,
     ): AgentDeletionResult {
-        return DB::transaction(function () use ($patient, $modelClass, $resourceType, $recordId, $expectedVersion, $afterDelete): AgentDeletionResult {
-            /** @var Model|null $record */
-            $record = $modelClass::query()
+        return DB::transaction(function () use ($patient, $modelClass, $resourceType, $recordId, $expectedVersion, $afterDelete, $constrain): AgentDeletionResult {
+            $query = $modelClass::query()
                 ->withoutGlobalScope(SoftDeletingScope::class)
-                ->where('patient_id', $patient->id)
-                ->lockForUpdate()
-                ->find($recordId);
+                ->where('patient_id', $patient->id);
+            if ($constrain !== null) {
+                $constrain($query);
+            }
+            /** @var Model|null $record */
+            $record = $query->lockForUpdate()->find($recordId);
             abort_if($record === null, 404);
 
             if ($record->getAttribute('deleted_at') !== null) {

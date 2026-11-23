@@ -648,7 +648,8 @@ final readonly class PhrReviewQueueService
             ->whereIn('id', $flags->pluck('related_fill_id')->unique()->values())->get()->keyBy('id');
         $all = collect($fills)->only($flags->pluck('fill_id')->all())->union($candidates->all());
         $evidence = PhrMedicationFillEvidence::query()->where('patient_id', $patient->id)->whereIn('fill_id', $all->keys())
-            ->where(fn (Builder $query) => $query->whereNotNull('document_id')->orWhereNotNull('eob_line_id'))
+            // A line of a deleted claim (#444) is no longer a source.
+            ->where(fn (Builder $query) => $query->whereNotNull('document_id')->orWhereHas('eobLine', fn (Builder $lines) => $lines->onStandingClaims()))
             ->get()->groupBy('fill_id');
         $documentIds = $all->pluck('source_document_id')->merge($evidence->flatten(1)->pluck('document_id'))->filter()->unique()->values();
         $titles = $documentIds->isEmpty() ? collect() : PhrDocument::query()->where('patient_id', $patient->id)

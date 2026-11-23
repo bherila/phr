@@ -18,6 +18,7 @@ use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
 use App\Support\PHR\PhrReviewStatus;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -389,28 +390,111 @@ final class AgentApiRecordDeletionTest extends TestCase
         $this->assertSame($updatedEntry['version'], $this->getJson("{$logUrl}/entries")->json('data.0.version'));
     }
 
-    public function test_health_log_entries_and_logs_are_deleted_as_the_browser_deletes_them(): void
+    public function test_a_logs_version_is_not_moved_by_its_entries(): void
+    {
+        [$person, $patient] = $this->person();
+        $logId = (int) $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs", ['name' => 'Synthetic log', 'kind' => 'custom'])->assertCreated()->json('health_log.id');
+        $scopes = [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE, AgentApiScopes::CLINICAL_DELETE];
+        $this->agent($person, $scopes);
+        $logUrl = "/api/v1/patients/{$patient->id}/health-logs/{$logId}";
+        $updated = $this->patchJson($logUrl, ['expected_version' => (string) $this->getJson($logUrl)->json('data.version'), 'data' => ['description' => 'Synthetic description']])
+            ->assertOk()->assertJsonPath('outcome', 'updated')->json('version');
+
+        // Each entry change lands in a later second, so it moves the log's updated_at (#446).
+        $this->travel(5)->seconds();
+        $entryId = (int) $this->postJson("{$logUrl}/entries", ['external_id' => 'synthetic-entry', 'occurred_at' => '2026-03-01T08:30:00Z'])->assertCreated()->json('data.id');
+        $this->assertSame($updated, $this->getJson($logUrl)->json('data.version'));
+        $this->travel(5)->seconds();
+        $entryVersion = (string) $this->getJson("{$logUrl}/entries/{$entryId}")->json('data.version');
+        $edited = $this->patchJson("{$logUrl}/entries/{$entryId}", ['expected_version' => $entryVersion, 'data' => ['notes' => 'Synthetic note']])->assertOk()->json('version');
+        $this->assertSame($updated, $this->getJson($logUrl)->json('data.version'));
+        $this->travel(5)->seconds();
+        $this->deleteJson("{$logUrl}/entries/{$entryId}", ['expected_version' => $edited])->assertOk()->assertJsonPath('outcome', 'deleted');
+        $this->assertSame($updated, $this->getJson($logUrl)->json('data.version'));
+        $this->assertNotSame('2026-03-04 05:06:07', PhrHealthLog::query()->findOrFail($logId)->updated_at?->toDateTimeString(), 'the entries did touch the log');
+
+        // The version read before all of that still updates the log, and its own edit moves it.
+        $this->travel(5)->seconds();
+        $renamed = $this->patchJson($logUrl, ['expected_version' => $updated, 'data' => ['name' => 'Synthetic renamed log']])
+            ->assertOk()->assertJsonPath('outcome', 'updated')->json('version');
+        $this->assertNotSame($updated, $renamed);
+        $this->patchJson($logUrl, ['expected_version' => $updated, 'data' => ['kind' => 'symptom']])->assertConflict();
+    }
+
+    public function test_health_log_entries_and_logs_are_soft_deleted_as_the_browser_deletes_them(): void
     {
         [$person, $patient] = $this->person();
         $logId = (int) $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs", ['name' => 'Synthetic log', 'kind' => 'custom'])->assertCreated()->json('health_log.id');
         $entryId = (int) $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs/{$logId}/entries", ['occurred_at' => '2026-03-01T08:30:00Z'])->assertCreated()->json('entry.id');
-        $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs/{$logId}/entries", ['occurred_at' => '2026-03-02T08:30:00Z'])->assertCreated();
+        $otherEntryId = (int) $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs/{$logId}/entries", ['occurred_at' => '2026-03-02T08:30:00Z'])->assertCreated()->json('entry.id');
         $scopes = [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_DELETE];
         $this->agent($person, $scopes);
 
         $logUrl = "/api/v1/patients/{$patient->id}/health-logs/{$logId}";
         $entryUrl = "{$logUrl}/entries/{$entryId}";
         $entryVersion = (string) $this->getJson($entryUrl)->assertOk()->json('data.version');
-        $deletedEntry = $this->assertDeletesAsTheBrowserDoes($person, "/api/phr/patients/{$patient->id}/health-logs/{$logId}/entries/{$entryId}", $entryUrl, $entryVersion, $scopes, repeatAnswers: 404);
+        $deletedEntry = $this->assertDeletesAsTheBrowserDoes($person, "/api/phr/patients/{$patient->id}/health-logs/{$logId}/entries/{$entryId}", $entryUrl, $entryVersion, $scopes);
         $this->assertSame(['resource_type' => 'health-log-entries', 'id' => $entryId, 'patient_id' => $patient->id, 'change_type' => 'deleted', 'changed_at' => now()->toIso8601String()], $deletedEntry['data']);
         $this->assertSame($logId, $deletedEntry['health_log_id']);
-        $this->assertSame(1, PhrHealthLogEntry::query()->count());
+        $this->assertSame([$otherEntryId], PhrHealthLogEntry::query()->pluck('id')->all());
+        $this->assertNotNull(PhrHealthLogEntry::withTrashed()->findOrFail($entryId)->deleted_at);
+        $this->getJson($entryUrl)->assertNotFound();
+        $this->assertSame(1, $this->getJson($logUrl)->assertOk()->json('data.entries_count'));
+        $this->assertTombstoneInChanges($patient, 'health-log-entries', $deletedEntry['data']);
 
+        $this->travel(1)->minutes();
+        $this->agent($person, $scopes);
         $logVersion = (string) $this->getJson($logUrl)->assertOk()->json('data.version');
-        $deletedLog = $this->assertDeletesAsTheBrowserDoes($person, "/api/phr/patients/{$patient->id}/health-logs/{$logId}", $logUrl, $logVersion, $scopes, repeatAnswers: 404);
-        $this->assertSame('health-logs', $deletedLog['data']['resource_type']);
+        $deletedLog = $this->assertDeletesAsTheBrowserDoes($person, "/api/phr/patients/{$patient->id}/health-logs/{$logId}", $logUrl, $logVersion, $scopes);
+        $this->assertSame(['resource_type' => 'health-logs', 'id' => $logId, 'patient_id' => $patient->id, 'change_type' => 'deleted', 'changed_at' => now()->toIso8601String()], $deletedLog['data']);
         $this->assertSame(0, PhrHealthLog::query()->count());
         $this->assertSame(0, PhrHealthLogEntry::query()->count());
+        $this->getJson($logUrl)->assertNotFound();
+        // Every entry still in the log went with it, at the same moment; the one deleted
+        // earlier keeps its own time.
+        $this->assertSame(now()->toDateTimeString(), PhrHealthLogEntry::withTrashed()->findOrFail($otherEntryId)->deleted_at?->toDateTimeString());
+        $this->assertSame('2026-03-04 05:06:07', PhrHealthLogEntry::withTrashed()->findOrFail($entryId)->deleted_at?->toDateTimeString());
+        $this->assertTombstoneInChanges($patient, 'health-logs', $deletedLog['data']);
+        $this->assertTombstoneInChanges($patient, 'health-log-entries', ['resource_type' => 'health-log-entries', 'id' => $otherEntryId, 'patient_id' => $patient->id, 'change_type' => 'deleted', 'changed_at' => now()->toIso8601String()]);
+
+        // A repeat of the entry's delete, once its log is gone too, is still settled.
+        $this->agent($person, $scopes);
+        $this->deleteJson($entryUrl, ['expected_version' => $entryVersion])->assertOk()->assertJsonPath('outcome', 'unchanged');
+    }
+
+    public function test_a_deleted_logs_name_can_be_used_again(): void
+    {
+        [$person, $patient] = $this->person();
+        $first = (int) $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs", ['name' => 'Synthetic log', 'kind' => 'custom'])->assertCreated()->json('health_log.id');
+        $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs", ['name' => 'Synthetic log', 'kind' => 'custom'])
+            ->assertUnprocessable()->assertJsonValidationErrors('name');
+
+        $this->actingAs($person)->deleteJson("/api/phr/patients/{$patient->id}/health-logs/{$first}")->assertNoContent();
+        $second = (int) $this->actingAs($person)->postJson("/api/phr/patients/{$patient->id}/health-logs", ['name' => 'Synthetic log', 'kind' => 'symptom'])->assertCreated()->json('health_log.id');
+        $this->assertNotSame($first, $second);
+
+        // The database still refuses two standing logs of one name (a savepoint keeps the
+        // expected error from aborting the test's transaction on PostgreSQL).
+        $refused = false;
+        DB::beginTransaction();
+        try {
+            DB::table('phr_health_logs')->insert(['patient_id' => $patient->id, 'user_id' => $person->id, 'name' => 'Synthetic log', 'kind' => 'custom', 'created_at' => now(), 'updated_at' => now()]);
+        } catch (UniqueConstraintViolationException) {
+            $refused = true;
+        }
+        DB::rollBack();
+        $this->assertTrue($refused);
+
+        // ...while two deleted ones may share it.
+        $this->actingAs($person)->deleteJson("/api/phr/patients/{$patient->id}/health-logs/{$second}")->assertNoContent();
+        $this->assertSame(2, PhrHealthLog::onlyTrashed()->where('name', 'Synthetic log')->count());
+        $this->assertSame([null, null], PhrHealthLog::onlyTrashed()->orderBy('id')->pluck('name_reserved')->all());
+
+        // An agent creating a log under the name makes a new one, not either deleted one.
+        $this->agent($person, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE]);
+        $created = (int) $this->postJson("/api/v1/patients/{$patient->id}/health-logs", ['external_id' => 'synthetic-log', 'name' => 'Synthetic log', 'kind' => 'custom'])
+            ->assertCreated()->json('data.id');
+        $this->assertNotContains($created, [$first, $second]);
     }
 
     public function test_respiratory_events_are_deleted_in_a_batch_as_the_browser_deletes_them(): void
@@ -475,7 +559,9 @@ final class AgentApiRecordDeletionTest extends TestCase
         $entry = $this->tool('health_log_entries.get', ['patient_id' => $patient->id, 'health_log_id' => $logId, 'entry_id' => $entryId]);
         $this->assertSame('deleted', $this->tool('health_log_entries.delete', ['patient_id' => $patient->id, 'health_log_id' => $logId, 'entry_id' => $entryId, 'expected_version' => $entry['data']['version']])['outcome']);
         $log = $this->tool('clinical.get', ['patient_id' => $patient->id, 'resource_type' => 'health-logs', 'record_id' => $logId]);
-        $this->assertSame('deleted', $this->tool('health_logs.delete', ['patient_id' => $patient->id, 'health_log_id' => $logId, 'expected_version' => $log['data']['version']])['outcome']);
+        $logDelete = ['patient_id' => $patient->id, 'health_log_id' => $logId, 'expected_version' => $log['data']['version']];
+        $this->assertSame('deleted', $this->tool('health_logs.delete', $logDelete)['outcome']);
+        $this->assertSame('unchanged', $this->tool('health_logs.delete', $logDelete)['outcome']);
 
         $record = $this->tool('clinical.get', ['patient_id' => $patient->id, 'resource_type' => 'allergies', 'record_id' => $allergy]);
         $stale = $this->callTool('clinical.delete', ['patient_id' => $patient->id, 'resource_type' => 'allergies', 'record_id' => $allergy, 'expected_version' => self::STALE]);

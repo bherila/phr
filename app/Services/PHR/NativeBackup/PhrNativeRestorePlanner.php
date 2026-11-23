@@ -33,6 +33,8 @@ final class PhrNativeRestorePlanner
         'phr_document_relations' => [['document_id']],
         // An encounter is grouped under an episode once (#415).
         'phr_episode_encounters' => [['episode_id', 'office_visit_id']],
+        // A standing log's name, once per patient; a deleted log's name_reserved is null (#444).
+        'phr_health_logs' => [['patient_id', 'name', 'name_reserved']],
         'phr_ehi_sources' => [['patient_id', 'label']],
         'phr_ehi_packages' => [['patient_id', 'manifest_digest']],
         'phr_ehi_blobs' => [['patient_id', 'sha256']],

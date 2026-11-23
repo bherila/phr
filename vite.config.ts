@@ -11,6 +11,7 @@ export default defineConfig({
       input: [
         'resources/css/app.css',
         'resources/js/phr/pages.tsx',
+        'resources/js/phr/eobs/eobPage.tsx',
         'resources/js/phr/imaging/explore3d/standalone.tsx',
       ],
       refresh: true,

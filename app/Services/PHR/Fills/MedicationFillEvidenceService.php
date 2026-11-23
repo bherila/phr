@@ -17,7 +17,8 @@ use Illuminate\Validation\ValidationException;
 final class MedicationFillEvidenceService
 {
     /**
-     * The EOB line must be this patient's; a line of another patient's claim is never linked.
+     * The EOB line must be this patient's, of a claim that still stands; a line of another
+     * patient's claim, or of a deleted one (#444), is never linked.
      *
      * @throws ValidationException
      */
@@ -26,7 +27,7 @@ final class MedicationFillEvidenceService
         if ($eobLineId === null) {
             return;
         }
-        if (! PhrEobLine::query()->where('patient_id', $patient->id)->whereKey($eobLineId)->exists()) {
+        if (! PhrEobLine::query()->where('patient_id', $patient->id)->whereKey($eobLineId)->onStandingClaims()->exists()) {
             throw ValidationException::withMessages(['data.eob_line_id' => 'This EOB line does not belong to the patient.']);
         }
     }

@@ -33,5 +33,21 @@
     @else
       <p class="text-sm text-muted-foreground">No source document attached.</p>
     @endif
+
+    {{-- The delete action (#444), offered to a person who may change this patient's records. --}}
+    <div
+      id="PhrEobActions"
+      data-patient-id="{{ $patient->id }}"
+      data-eob-id="{{ $eob->id }}"
+      data-can-delete="{{ $canDelete ? 'true' : 'false' }}"
+      data-claim-label="{{ $eob->claim_number !== null ? 'claim '.$eob->claim_number : 'claim' }}{{ $eob->provider_name !== null ? ' from '.$eob->provider_name : '' }}"
+      data-return-url="{{ route('phr.patient', ['patient' => $patient->id]) }}"
+    ></div>
   </article>
 @endsection
+
+@push('scripts')
+  @if ($canDelete)
+    @vite('resources/js/phr/eobs/eobPage.tsx')
+  @endif
+@endpush

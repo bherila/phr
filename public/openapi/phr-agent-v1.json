@@ -108,7 +108,7 @@
             "get": {
                 "operationId": "changes.list",
                 "summary": "List bounded clinical changes using a stable snapshot watermark",
-                "description": "Use the watermark returned by the first page for each following cursor page. Deleted and retracted resources are tombstones, never inferred from absence. Documents are included when the token also has documents:read.",
+                "description": "Use the watermark returned by the first page for each following cursor page. Deleted and retracted resources are tombstones, never inferred from absence. It follows every type of records.search: clinical records, EOBs, medication transitions, health logs and health log entries. Documents are included when the token also has documents:read.",
                 "security": [
                     {
                         "oauth2": [
@@ -2034,6 +2034,70 @@
             }
         },
         "/patients/{patient}/eobs/{eob}": {
+            "delete": {
+                "operationId": "eobs.delete",
+                "summary": "Delete one EOB, whoever wrote it",
+                "description": "The browser's delete, for an agent: the claim is soft-deleted (deleted_at), leaves every list and read, and changes.list reports it as a deleted tombstone, which is what this answers with. Its lines and correction history stay stored and leave every read with it. Its links stay stored and stop counting: a visit or procedure no longer lists it, a fill linked to one of its lines no longer shows that line (and changes.list reports the fill as changed), and automatic fill links to it are withdrawn. The same claim is not imported or written again: eobs.import and eobs.upsert answer 409 for it. It reaches any EOB of the patient, whoever wrote it. Read it first (eobs.get) and send its current version: an EOB changed since is refused with 409. An EOB already deleted answers outcome unchanged, whatever version is sent. Requires clinical:read and clinical:delete, the scope every clinical delete needs, granted apart from the clinical:write that EOB writes use.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:delete"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecordDeletionRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EobId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "EOB deleted, or already deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecordDeletionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            },
             "get": {
                 "operationId": "eobs.get",
                 "summary": "Get one explanation-of-benefit record",
@@ -2154,7 +2218,7 @@
             "post": {
                 "operationId": "eobs.import",
                 "summary": "Import a stored document as an EOB with the server's own parsers",
-                "description": "Reads a Meritain EOB PDF already stored as a document. Delta Dental CSVs without independent EOB PDF totals return 422; read the EOB PDF and use eobs.upsert. Idempotent on the claim fingerprint, across sources. New claims land pending_review. A document in any other format answers outcome unrecognised_format: extract the claim and call eobs.upsert with source_document_id.",
+                "description": "Reads a Meritain EOB PDF already stored as a document. Delta Dental CSVs without independent EOB PDF totals return 422; read the EOB PDF and use eobs.upsert. Idempotent on the claim fingerprint, across sources. New claims land pending_review. A claim that was deleted is refused with 409, not imported again. A document in any other format answers outcome unrecognised_format: extract the claim and call eobs.upsert with source_document_id.",
                 "security": [
                     {
                         "oauth2": [
@@ -2309,7 +2373,7 @@
             "put": {
                 "operationId": "eobs.upsert",
                 "summary": "Idempotently write an EOB claim and its lines, pending review",
-                "description": "For a claim the client read itself. Requires source_document_id. Idempotent on the importers' claim fingerprint across every source, so re-reading a claim a parser or another client already holds is unchanged, and a claim with the same number, type and processed date is the same claim. A pharmacy line may carry a fill (NDC or drug, quantity, Rx number, pharmacy, date): the server writes it through the fill write path, so the same dispensing read from a label, a receipt and this EOB is one fill, linked to this line. A caller without clinical:read receives receipts only.",
+                "description": "For a claim the client read itself. Requires source_document_id. Idempotent on the importers' claim fingerprint across every source, so re-reading a claim a parser or another client already holds is unchanged, and a claim with the same number, type and processed date is the same claim. A claim that was deleted (eobs.delete or in PHR) is refused with 409, not written again. A pharmacy line may carry a fill (NDC or drug, quantity, Rx number, pharmacy, date): the server writes it through the fill write path, so the same dispensing read from a label, a receipt and this EOB is one fill, linked to this line. A caller without clinical:read receives receipts only.",
                 "security": [
                     {
                         "oauth2": [
@@ -3465,7 +3529,7 @@
             "delete": {
                 "operationId": "health_log_entries.delete",
                 "summary": "Delete one health log entry, whoever recorded it",
-                "description": "The browser's delete, for an agent: the entry is removed outright, as the browser removes it (an entry has no deleted_at), so a repeat finds nothing and answers 404. Read it first (health_log_entries.get) and send its current version: an entry changed since is refused with 409. Requires clinical:read and clinical:delete.",
+                "description": "The browser's delete, for an agent: the entry is soft-deleted (deleted_at), leaves every list and read, and changes.list reports it as a deleted tombstone, which is what this answers with. Read it first (health_log_entries.get) and send its current version: an entry changed since is refused with 409. An entry already deleted, on its own or with its log, answers outcome unchanged, whatever version is sent. Requires clinical:read and clinical:delete.",
                 "security": [
                     {
                         "oauth2": [
@@ -3500,7 +3564,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Entry deleted",
+                        "description": "Entry deleted, or already deleted",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3721,7 +3785,7 @@
             "delete": {
                 "operationId": "health_logs.delete",
                 "summary": "Delete one health log and its entries, whoever created it",
-                "description": "The browser's delete, for an agent: the log is removed outright with every entry in it, as the browser removes it (a log has no deleted_at), so a repeat finds nothing and answers 404. Read it first (clinical.get with resource_type health-logs) and send its current version: a log changed since is refused with 409. Requires clinical:read and clinical:delete.",
+                "description": "The browser's delete, for an agent: the log is soft-deleted (deleted_at) with every entry still in it, leaves every list and read, and changes.list reports it and each of those entries as deleted tombstones; this answers with the log's. Its name is free at once for a new log. Read it first (clinical.get with resource_type health-logs) and send its current version: a log changed since is refused with 409. A log already deleted answers outcome unchanged, whatever version is sent. Requires clinical:read and clinical:delete.",
                 "security": [
                     {
                         "oauth2": [
@@ -3753,7 +3817,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Health log deleted",
+                        "description": "Health log deleted, or already deleted",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6710,7 +6774,7 @@
                 "schema": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 12,
+                    "maxItems": 15,
                     "uniqueItems": true,
                     "items": {
                         "type": "string",
@@ -6725,7 +6789,10 @@
                             "lab-results",
                             "vitals",
                             "episodes",
+                            "medication-transitions",
                             "health-logs",
+                            "health-log-entries",
+                            "eobs",
                             "documents"
                         ]
                     }
@@ -7385,7 +7452,10 @@
                             "lab-results",
                             "vitals",
                             "episodes",
+                            "medication-transitions",
                             "health-logs",
+                            "health-log-entries",
+                            "eobs",
                             "documents"
                         ]
                     },
@@ -16262,7 +16332,7 @@
             },
             "RecordDeletionTombstone": {
                 "type": "object",
-                "description": "The deleted record as changes.list reports it from now on. A health log or entry is removed outright, so changes.list keeps no tombstone of it.",
+                "description": "The deleted record as changes.list reports it from now on.",
                 "required": [
                     "resource_type",
                     "id",

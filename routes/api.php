@@ -230,6 +230,9 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->whereNumber('patient')->middleware('throttle:agent-api');
         Route::operation('eobs.update', [AgentEobController::class, 'update'])
             ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api');
+        // The browser's soft delete (#444), under clinical:delete like every clinical delete.
+        Route::operation('eobs.delete', [AgentEobController::class, 'destroy'])
+            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api');
 
         Route::operation('medication_fills.resolve_duplicate', [AgentFillDuplicateController::class, 'resolve'])
             ->whereNumber(['patient', 'fill'])->middleware('throttle:agent-api');
@@ -559,6 +562,7 @@ Route::middleware(['web', 'auth'])
         Route::patch('/patients/{patient}/immunizations/{immunization}/review', [PHRImmunizationController::class, 'review'])->whereNumber(['patient', 'immunization'])->name('patients.immunizations.review');
         Route::get('/patients/{patient}/eobs', [PHRClinicalEobController::class, 'index'])->whereNumber('patient')->name('patients.eobs.index');
         Route::patch('/patients/{patient}/eobs/{eob}/review', [PHRClinicalEobController::class, 'review'])->whereNumber(['patient', 'eob'])->name('patients.eobs.review');
+        Route::delete('/patients/{patient}/eobs/{eob}', [PHRClinicalEobController::class, 'destroy'])->whereNumber(['patient', 'eob'])->name('patients.eobs.destroy');
         Route::get('/patients/{patient}/allergies', [PHRAllergyController::class, 'index'])->whereNumber('patient')->name('patients.allergies.index');
         Route::post('/patients/{patient}/allergies', [PHRAllergyController::class, 'store'])->whereNumber('patient')->name('patients.allergies.store');
         Route::get('/patients/{patient}/allergies/{allergy}', [PHRAllergyController::class, 'show'])->whereNumber(['patient', 'allergy'])->name('patients.allergies.show');

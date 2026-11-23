@@ -211,6 +211,14 @@ final class AgentMcpToolCatalog
                 effect: Effect::Destructive,
             ),
             $this->write(
+                'eobs.delete',
+                'Delete an EOB',
+                'Delete one EOB by its ID and current version (read it with eobs_get), whoever wrote it, a person in PHR included. This is PHR\'s own delete: the claim and its lines leave every read and changes_list reports it as deleted; visits and procedures no longer list it, fills linked to it no longer show it, and the same claim is not imported or written again. Call it only when the person has asked for this claim to be removed, never to tidy up a duplicate. An EOB already deleted answers outcome unchanged; a stale version is refused, so read the EOB again.',
+                [$writes, 'eobsDelete'],
+                $deleteByVersion,
+                effect: Effect::Destructive,
+            ),
+            $this->write(
                 'medication_fills.resolve_duplicate',
                 'Resolve a possible-duplicate fill',
                 'For a fill you wrote that came back with review_flags possible_duplicate: action same merges it into the existing fill (its evidence moves there, it is retracted, nothing is deleted); action different clears the flag and keeps both. Pass the flagged fill\'s current version (read it with clinical_get). Ask the person before choosing same. With several open flags, same needs candidate_fill_id.',
@@ -313,7 +321,7 @@ final class AgentMcpToolCatalog
             $this->write(
                 'health_logs.delete',
                 'Delete health log',
-                'Delete one health log and every entry in it by its ID and current version (read it with clinical_get, resource_type health-logs), whoever created it. As in PHR, the log is removed outright, so a repeat answers not found. Call it only when the person has asked for this log to be removed.',
+                'Delete one health log and every entry in it by its ID and current version (read it with clinical_get, resource_type health-logs), whoever created it. This is PHR\'s own delete: the log and its entries leave every read and changes_list reports them as deleted, and the name is free for a new log. Call it only when the person has asked for this log to be removed. A log already deleted answers outcome unchanged; a stale version is refused, so read the log again.',
                 [$writes, 'healthLogsDelete'],
                 $deleteByVersion,
                 effect: Effect::Destructive,
@@ -329,7 +337,7 @@ final class AgentMcpToolCatalog
             $this->write(
                 'health_log_entries.delete',
                 'Delete health log entry',
-                'Delete one health log entry by its ID and current version (read it with health_log_entries_get), whoever recorded it. As in PHR, the entry is removed outright, so a repeat answers not found. Call it only when the person has asked for this entry to be removed.',
+                'Delete one health log entry by its ID and current version (read it with health_log_entries_get), whoever recorded it. This is PHR\'s own delete: the entry leaves every read and changes_list reports it as deleted. Call it only when the person has asked for this entry to be removed. An entry already deleted answers outcome unchanged; a stale version is refused, so read the entry again.',
                 [$writes, 'healthLogEntriesDelete'],
                 $deleteByVersion,
                 effect: Effect::Destructive,

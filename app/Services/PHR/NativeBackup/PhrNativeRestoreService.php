@@ -421,7 +421,8 @@ final class PhrNativeRestoreService
         $patientId = $plan->targetPatientId ?? 0;
         $materialized = [];
         foreach ($plan->legacyMigrations as $proof) {
-            $eob = PhrEob::query()->where('patient_id', $patientId)->lockForUpdate()->findOrFail($proof['record_id']);
+            // A deleted EOB (#444) restores with its history like any other.
+            $eob = PhrEob::withTrashed()->where('patient_id', $patientId)->lockForUpdate()->findOrFail($proof['record_id']);
             $parsed = $eob->parsed_data;
             $legacy = is_array($parsed) ? ($parsed['corrections'] ?? []) : [];
             if (! is_array($legacy) || ! array_is_list($legacy)

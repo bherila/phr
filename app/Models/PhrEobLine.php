@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Services\PHR\Fills\FillEobLinkTrigger;
 use App\Traits\SerializesDatesAsLocal;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -78,6 +79,20 @@ class PhrEobLine extends Model
             'patient_responsibility' => 'decimal:2',
             'parsed_data' => 'array',
         ];
+    }
+
+    /**
+     * Lines whose claim still stands. A deleted EOB keeps its lines (#444); a path that
+     * reaches a line without going through its claim (a fill's evidence, a new link)
+     * leaves the deleted claim's lines out with this.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeOnStandingClaims(Builder $query): void
+    {
+        $query->whereExists(static fn ($claims) => $claims->selectRaw('1')->from('phr_eobs as standing_claims')
+            ->whereColumn('standing_claims.id', $query->getModel()->qualifyColumn('eob_id'))
+            ->whereNull('standing_claims.deleted_at'));
     }
 
     /** @return BelongsTo<PhrEob, $this> */

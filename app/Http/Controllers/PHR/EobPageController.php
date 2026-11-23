@@ -30,7 +30,9 @@ class EobPageController extends Controller
 
     public function show(Request $request, int $patient, int $eob): Response
     {
-        $resolvedPatient = $this->accessService->accessiblePatient($patient, (int) $request->user()?->id);
+        $userId = (int) $request->user()?->id;
+        $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
+        // A deleted EOB (#444) is not found, like every other deleted record.
         $resolvedEob = PhrEob::query()->where('patient_id', $resolvedPatient->id)->findOrFail($eob);
         $sourceDocument = $resolvedEob->sourceDocument()->where('patient_id', $resolvedPatient->id)->first();
 
@@ -38,6 +40,7 @@ class EobPageController extends Controller
             'patient' => $resolvedPatient,
             'eob' => $resolvedEob,
             'sourceDocument' => $sourceDocument,
+            'canDelete' => $this->accessService->canWrite($resolvedPatient, $userId),
         ])->header('Cache-Control', 'private, no-store, max-age=0');
     }
 }

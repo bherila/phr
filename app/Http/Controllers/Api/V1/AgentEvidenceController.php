@@ -419,7 +419,9 @@ final class AgentEvidenceController extends Controller
             'lab-result' => PhrLabResult::class, 'vital' => PhrPatientVital::class, 'medication' => PhrMedication::class,
             default => abort(404),
         };
-        $model::query()->where('patient_id', $patientId)->findOrFail($id);
+        // A deleted claim's lines leave every read with it (#444).
+        $query = $type === 'eob-line' ? PhrEobLine::query()->onStandingClaims() : $model::query();
+        $query->where('patient_id', $patientId)->findOrFail($id);
     }
 
     /**
@@ -458,7 +460,7 @@ final class AgentEvidenceController extends Controller
     /** @return array<string, \Illuminate\Database\Query\Builder> */
     private function documentLinkQueries(int $documentId, int $patientId): array
     {
-        $queries = ['eob' => DB::table('phr_eobs')->where('patient_id', $patientId)->where('source_document_id', $documentId)];
+        $queries = ['eob' => DB::table('phr_eobs')->where('patient_id', $patientId)->whereNull('deleted_at')->where('source_document_id', $documentId)];
         foreach (AgentClinicalResourceCatalog::ids() as $resource) {
             $definition = AgentClinicalResourceCatalog::definition($resource);
             if (! ($definition['provenance'] ?? false)) {
@@ -580,8 +582,10 @@ final class AgentEvidenceController extends Controller
                 ->whereNull('deleted_at')
                 ->where(fn ($documents) => $documents->where('id', $documentId ?? 0)
                     ->orWhereIn('id', $evidence()->whereNotNull('document_id')->select('document_id'))),
+            // A deleted claim's lines keep their evidence rows, which no longer count (#444).
             'eob-line' => DB::table('phr_eob_lines')->where('patient_id', $patientId)
-                ->whereIn('id', $evidence()->whereNotNull('eob_line_id')->select('eob_line_id')),
+                ->whereIn('id', $evidence()->whereNotNull('eob_line_id')->select('eob_line_id'))
+                ->whereIn('eob_id', fn ($claims) => $claims->select('id')->from('phr_eobs')->where('patient_id', $patientId)->whereNull('deleted_at')),
         ];
     }
 
@@ -638,7 +642,8 @@ final class AgentEvidenceController extends Controller
     private function clinicalLinkQueries(string $table, string $pivot, string $foreignKey, int $sourceId, int $patientId): array
     {
         $queries = [
-            'eob' => DB::table('phr_eobs')->where('patient_id', $patientId)
+            // A deleted claim keeps its link row, which no longer counts (#444).
+            'eob' => DB::table('phr_eobs')->where('patient_id', $patientId)->whereNull('deleted_at')
                 ->whereExists(fn ($links) => $links->selectRaw('1')->from($pivot)
                     ->where('patient_id', $patientId)->where($foreignKey, $sourceId)
                     ->whereColumn('eob_id', 'phr_eobs.id')),
