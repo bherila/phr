@@ -110,7 +110,8 @@ final class AgentEncounterController extends Controller
         $type = $resource === null ? 'document' : PhrEncounterLinks::CLINICAL_RESOURCES[$resource];
         $query = $this->links->linkedRecords($patientId, $visitId, $type);
         if ($resource === null) {
-            $query->with('genAiJob:id,status');
+            // Its link is part of each document's payload and version.
+            $query->with(['genAiJob:id,status', 'relatesTo']);
         }
         $page = $query->orderBy('id')->cursorPaginate($limit, ['*'], 'cursor', AgentApiCursor::decode($cursor));
         $records = $page->getCollection();

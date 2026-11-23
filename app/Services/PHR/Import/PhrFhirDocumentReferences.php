@@ -145,8 +145,16 @@ final class PhrFhirDocumentReferences
     }
 
     /**
-     * The import identity a reference to a DocumentReference names: the
-     * `DocumentReference/{id}` this importer gives it.
+     * The import identity a reference to a DocumentReference names, derived as
+     * PhrFhirImporter::externalId() derived it when it imported the target: its
+     * `DocumentReference/{id}`, else, for a target with no id, the identity its
+     * entry's fullUrl gave it (phr#430).
+     *
+     * - A bundle entry the reference names, by `Type/id` or by fullUrl. Found by
+     *   fullUrl, the reference is that fullUrl.
+     * - Otherwise a relative or RESTful `DocumentReference/{id}`, or any other
+     *   absolute reference (a URN), which is the fullUrl of the entry it names:
+     *   a document read earlier without an id is found by it.
      *
      * @param  array<string, array<string, mixed>>  $index
      */
@@ -154,12 +162,13 @@ final class PhrFhirDocumentReferences
     {
         $resource = $index[$reference] ?? null;
         if (is_array($resource)) {
-            $id = $this->string($resource['id'] ?? null);
-
-            return ($resource['resourceType'] ?? null) === 'DocumentReference' && $id !== null ? 'DocumentReference/'.$id : null;
+            return ($resource['resourceType'] ?? null) === 'DocumentReference' ? PhrFhirImporter::externalId($resource, $reference) : null;
         }
         if (preg_match('~(?:^|/)DocumentReference/([A-Za-z0-9\-.]{1,64})(?:/_history/[^/]+)?$~', $reference, $matches) === 1) {
-            return 'DocumentReference/'.$matches[1];
+            return PhrFhirImporter::externalId(['resourceType' => 'DocumentReference', 'id' => $matches[1]]);
+        }
+        if (preg_match('~^[A-Za-z][A-Za-z0-9+.\-]*:~', $reference) === 1) {
+            return PhrFhirImporter::externalId(['resourceType' => 'DocumentReference'], $reference);
         }
 
         return null;

@@ -452,7 +452,7 @@ class PhrFhirImporter
     private function importResource(array $resource, PhrPatient $patient, int $actorUserId, ?string $fullUrl = null, array $impressions = [], ?int $position = null, array $careTeams = [], array $index = []): PhrImportResult
     {
         $resourceType = (string) ($resource['resourceType'] ?? '');
-        $externalId = $this->externalId($resource, $fullUrl);
+        $externalId = self::externalId($resource, $fullUrl);
 
         return match ($resourceType) {
             'Observation' => $this->importObservation($resource, $patient, $actorUserId, $externalId),
@@ -1340,9 +1340,12 @@ class PhrFhirImporter
      * entry's fullUrl, else by a digest of its content, so importing the same bundle
      * again updates it rather than adding it a second time.
      *
+     * PhrFhirDocumentReferences names the target of a relatesTo with this too, so an
+     * addendum finds the document its target became (phr#430).
+     *
      * @param  array<string, mixed>  $resource
      */
-    private function externalId(array $resource, ?string $fullUrl = null): string
+    public static function externalId(array $resource, ?string $fullUrl = null): string
     {
         $type = is_string($resource['resourceType'] ?? null) ? $resource['resourceType'] : 'Resource';
         $id = $resource['id'] ?? null;

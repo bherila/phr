@@ -26,7 +26,9 @@ final class DocumentNoteRules
             'doc_status' => ['sometimes', 'nullable', 'string', Rule::in(PhrClinicalNote::DOC_STATUSES)],
             'patient_signature_status' => ['sometimes', 'nullable', 'string', Rule::in(PhrClinicalNote::PATIENT_SIGNATURE_STATUSES)],
             'patient_signed_at' => ['sometimes', 'nullable', 'date'],
-            'relates_to' => ['sometimes', 'nullable', 'array:document_id,relation'],
+            // null removes the link; anything else is a whole link. `{}` and `[]` are
+            // empty, which required_with does not see as given (phr#430).
+            'relates_to' => ['sometimes', 'nullable', 'array:document_id,relation', 'required_array_keys:document_id,relation'],
             'relates_to.document_id' => ['required_with:relates_to', 'integer', 'min:1'],
             'relates_to.relation' => ['required_with:relates_to', 'string', Rule::in(PhrClinicalNote::RELATIONS)],
         ];

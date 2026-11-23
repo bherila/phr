@@ -182,6 +182,61 @@ final class PhrClinicalNoteInteropTest extends TestCase
         $this->assertSame(3, PhrDocument::query()->where('patient_id', $patient->id)->count());
     }
 
+    public function test_an_addendum_to_a_document_reference_without_an_id_links_by_its_full_url_and_round_trips(): void
+    {
+        $patient = $this->patient();
+        // Long enough that the importer names the note by the fullUrl's digest.
+        $longUrl = 'https://fhir.example.test/'.str_repeat('synthetic-segment/', 14).'note';
+        $this->assertGreaterThan(255, strlen('DocumentReference/fullUrl:'.$longUrl));
+        $note = static fn (string $title, string $text): array => [
+            'resourceType' => 'DocumentReference', 'status' => 'current', 'docStatus' => 'final',
+            'type' => ['coding' => [['system' => 'http://loinc.org', 'code' => '11506-3']], 'text' => 'Progress Note'], 'description' => $title,
+            'date' => '2026-02-11T16:05:00-05:00',
+            'content' => [['attachment' => ['contentType' => 'text/plain', 'title' => str_replace(' ', '-', strtolower($title)).'.txt', 'data' => base64_encode($text)]]],
+        ];
+        $addendum = static fn (string $title, string $text, string $code, string $target): array => [...$note($title, $text), 'relatesTo' => [['code' => $code, 'target' => ['reference' => $target]]]];
+        app(PhrFhirImporter::class)->importBundle(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            // Neither the notes nor the first addendum has an id: each is named by its fullUrl.
+            ['fullUrl' => 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000021', 'resource' => $addendum('Addendum to Night Note', "Addendum: slept well.\n", 'appends', 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000020')],
+            ['fullUrl' => 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000020', 'resource' => $note('Night Note', "Night note.\n")],
+            ['fullUrl' => 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000023', 'resource' => [...$addendum('Amended Day Note', "Day note, amended.\n", 'replaces', $longUrl), 'id' => 'synthetic-day-amendment']],
+            ['fullUrl' => $longUrl, 'resource' => $note('Day Note', "Day note.\n")],
+        ]], $patient, (int) $this->owner->id);
+
+        $notes = $this->documents($patient);
+        $this->assertSame('DocumentReference/fullUrl:urn:uuid:7a1c0d2e-0000-4000-8000-000000000020', $notes['Night Note']->external_id);
+        $this->assertSame('DocumentReference/fullUrl-sha256:'.hash('sha256', $longUrl), $notes['Day Note']->external_id);
+        $this->assertSame(['related_document_id' => $notes['Night Note']->id, 'relation' => 'appends'], $this->relation($notes['Addendum to Night Note']));
+        $this->assertSame(['related_document_id' => $notes['Day Note']->id, 'relation' => 'replaces'], $this->relation($notes['Amended Day Note']));
+
+        // Across imports: an addendum read before its id-less note, and one read after it.
+        app(PhrFhirImporter::class)->importBundle(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['fullUrl' => 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000031', 'resource' => $addendum('Addendum to Evening Note', "Addendum: evening.\n", 'appends', 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000030')],
+            ['fullUrl' => 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000032', 'resource' => $addendum('Second Addendum to Night Note', "Addendum: woke once.\n", 'appends', 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000020')],
+        ]], $patient, (int) $this->owner->id);
+        $notes = $this->documents($patient);
+        $this->assertSame(['related_document_id' => $notes['Night Note']->id, 'relation' => 'appends'], $this->relation($notes['Second Addendum to Night Note']), 'a note imported earlier is found by the identity its fullUrl gave it');
+        $this->assertSame(['related_document_id' => null, 'relation' => 'appends'], $this->relation($notes['Addendum to Evening Note']), 'kept until its note arrives');
+        app(PhrFhirImporter::class)->importBundle(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['fullUrl' => 'urn:uuid:7a1c0d2e-0000-4000-8000-000000000030', 'resource' => $note('Evening Note', "Evening note.\n")],
+        ]], $patient, (int) $this->owner->id);
+        $notes = $this->documents($patient);
+        $this->assertSame(['related_document_id' => $notes['Evening Note']->id, 'relation' => 'appends'], $this->relation($notes['Addendum to Evening Note']));
+
+        // Exported, every link names its note, and it survives a second import.
+        PhrDocument::query()->where('patient_id', $patient->id)->update(['review_status' => PhrReviewStatus::CONFIRMED]);
+        $exported = json_decode($this->fhir($patient), true, flags: JSON_THROW_ON_ERROR);
+        $references = collect($exported['entry'])->pluck('resource')->where('resourceType', 'DocumentReference')->keyBy('description');
+        foreach (['Addendum to Night Note' => ['appends', 'Night Note'], 'Second Addendum to Night Note' => ['appends', 'Night Note'], 'Amended Day Note' => ['replaces', 'Day Note'], 'Addendum to Evening Note' => ['appends', 'Evening Note']] as $title => [$code, $target]) {
+            $this->assertSame([['code' => $code, 'target' => ['reference' => 'DocumentReference/phr-document-'.$notes[$target]->id]]], $references[$title]['relatesTo'] ?? null, $title);
+        }
+        $other = $this->patient();
+        app(PhrFhirImporter::class)->importBundle($exported, $other, (int) $this->owner->id);
+        $again = $this->documents($other);
+        $this->assertSame(['related_document_id' => $again['Night Note']->id, 'relation' => 'appends'], $this->relation($again['Addendum to Night Note']));
+        $this->assertSame(['related_document_id' => $again['Day Note']->id, 'relation' => 'replaces'], $this->relation($again['Amended Day Note']));
+    }
+
     /** @return array<string, mixed> */
     private function noteFacts(PhrDocument $document): array
     {

@@ -13,6 +13,7 @@ use App\Services\PHR\Export\PhrFhirExporter;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -169,6 +170,84 @@ final class AgentApiDocumentTextTest extends TestCase
         $this->assertNotSame($consentNow['version'], $updated['version']);
     }
 
+    public function test_an_empty_relates_to_is_refused_and_null_still_removes_the_link(): void
+    {
+        $original = $this->createText()->assertCreated()->json('data.id');
+        foreach (['object' => new \stdClass, 'list' => []] as $shape => $empty) {
+            $this->createText(['external_id' => "synthetic-empty-link-{$shape}", 'body' => "Empty link {$shape}.\n", 'relates_to' => $empty])
+                ->assertUnprocessable()->assertJsonValidationErrors(['relates_to']);
+        }
+        // One key alone is not a link either.
+        $this->createText(['external_id' => 'synthetic-half-link', 'body' => "Half a link.\n", 'relates_to' => ['relation' => 'appends']])
+            ->assertUnprocessable()->assertJsonValidationErrors(['relates_to']);
+        $this->assertSame(1, PhrDocument::query()->where('patient_id', $this->patient->id)->count());
+
+        $addendum = $this->createText(['external_id' => 'synthetic-addendum', 'body' => "Addendum.\n", 'relates_to' => ['document_id' => $original, 'relation' => 'appends']])
+            ->assertCreated()->json('data');
+        foreach ([new \stdClass, []] as $empty) {
+            $this->patchJson($this->base()."/{$addendum['id']}", ['expected_version' => $addendum['version'], 'data' => ['relates_to' => $empty]])
+                ->assertUnprocessable()->assertJsonValidationErrors(['data.relates_to']);
+        }
+        $this->patchJson($this->base()."/{$addendum['id']}", ['expected_version' => $addendum['version'], 'data' => ['relates_to' => ['document_id' => $original]]])
+            ->assertUnprocessable()->assertJsonValidationErrors(['data.relates_to']);
+        // The browser's metadata edit shares the rules.
+        $this->actingAs($this->actor)->patchJson("/api/phr/patients/{$this->patient->id}/documents/{$addendum['id']}", ['relates_to' => new \stdClass])
+            ->assertUnprocessable()->assertJsonValidationErrors(['relates_to']);
+        $this->assertSame($original, $this->getJson($this->base()."/{$addendum['id']}")->json('data.relates_to.document_id'), 'nothing was applied');
+
+        // MCP checks its input schema, which requires both keys, before the request is sent.
+        foreach ([new \stdClass, []] as $empty) {
+            $this->assertMcpRefusesRelatesTo('documents.create_text', ['patient_id' => $this->patient->id, 'external_id' => 'synthetic-mcp-empty-link', 'document_type' => 'progress_note', 'body' => "MCP.\n", 'relates_to' => $empty]);
+            $this->assertMcpRefusesRelatesTo('documents.update', ['patient_id' => $this->patient->id, 'document_id' => $addendum['id'], 'expected_version' => $addendum['version'], 'data' => ['relates_to' => $empty]]);
+        }
+        $this->assertSame(2, PhrDocument::query()->where('patient_id', $this->patient->id)->count());
+
+        // null still removes the link.
+        $this->patchJson($this->base()."/{$addendum['id']}", ['expected_version' => $addendum['version'], 'data' => ['relates_to' => null]])
+            ->assertOk()->assertJsonPath('outcome', 'updated')->assertJsonPath('data.relates_to', null);
+    }
+
+    public function test_a_relation_only_change_moves_the_version_within_the_same_second(): void
+    {
+        // Every write lands in the same second, so updated_at cannot tell them apart.
+        Carbon::setTestNow(Carbon::parse('2026-02-12 10:00:00.250', 'UTC'));
+        try {
+            $first = $this->createText(['external_id' => 'synthetic-first-note', 'body' => "First note.\n"])->assertCreated()->json('data.id');
+            $second = $this->createText(['external_id' => 'synthetic-second-note', 'body' => "Second note.\n"])->assertCreated()->json('data.id');
+            $note = $this->createText(['external_id' => 'synthetic-linked-note', 'body' => "Linked note.\n"])->assertCreated()->json('data');
+            $url = $this->base()."/{$note['id']}";
+            $loaded = $this->getJson($url)->assertOk()->json('data.version');
+            $browserLoaded = $this->actingAs($this->actor)->getJson("/api/phr/patients/{$this->patient->id}/documents/{$note['id']}")->assertOk()->json('document.version');
+            $this->assertSame($loaded, $browserLoaded, 'the browser and the API report one version');
+
+            $linked = $this->patchJson($url, ['expected_version' => $loaded, 'data' => ['relates_to' => ['document_id' => $first, 'relation' => 'appends']]])
+                ->assertOk()->assertJsonPath('outcome', 'updated')->json();
+            $this->assertNotSame($loaded, $linked['version'], 'the link is part of the version');
+            $this->assertSame($linked['version'], $linked['data']['version']);
+            $this->assertSame($linked['version'], $this->getJson($url)->json('data.version'), 'the write hands back the version a read reports');
+
+            // Another client still holding the version from before the link is refused.
+            $this->patchJson($url, ['expected_version' => $loaded, 'data' => ['relates_to' => ['document_id' => $second, 'relation' => 'replaces']]])->assertConflict();
+            $stale = $this->tool('documents.update', ['patient_id' => $this->patient->id, 'document_id' => $note['id'], 'expected_version' => $loaded, 'data' => ['relates_to' => null]]);
+            $this->assertTrue($stale['isError'] ?? false, (string) json_encode($stale));
+            $this->assertSame($first, $this->getJson($url)->json('data.relates_to.document_id'));
+            // A reviewer who loaded the page before the link cannot approve what it now says.
+            $review = "/api/phr/patients/{$this->patient->id}/documents/{$note['id']}/review";
+            $this->actingAs($this->actor)->patchJson($review, ['review_status' => PhrReviewStatus::CONFIRMED, 'version' => $browserLoaded])->assertConflict();
+            $listed = collect($this->actingAs($this->actor)->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk()->json('groups'))
+                ->flatMap(static fn (array $group): array => $group['items'])->firstWhere('id', $note['id']);
+            $this->assertSame($linked['version'], $listed['version'] ?? null, 'the review page lists the current version');
+            $this->assertSame($linked['version'], $this->actingAs($this->actor)->getJson("/api/phr/patients/{$this->patient->id}/documents/{$note['id']}")->json('document.version'));
+
+            // Removing the link in the same second moves it again.
+            $unlinked = $this->patchJson($url, ['expected_version' => $linked['version'], 'data' => ['relates_to' => null]])->assertOk()->json('version');
+            $this->assertNotSame($linked['version'], $unlinked);
+            $this->patchJson($url, ['expected_version' => $linked['version'], 'data' => ['relates_to' => ['document_id' => $second, 'relation' => 'appends']]])->assertConflict();
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_an_agent_note_leaves_exports_only_once_reviewed_and_never_as_authenticated(): void
     {
         $id = $this->createText()->assertCreated()->json('data.id');
@@ -254,6 +333,21 @@ final class AgentApiDocumentTextTest extends TestCase
         $response = $this->mcp(['jsonrpc' => '2.0', 'id' => ++$this->nextId, 'method' => 'tools/call', 'params' => ['name' => $tool, 'arguments' => $arguments]]);
 
         return $response->json('result') ?? $this->fail('No result: '.$response->getContent());
+    }
+
+    /**
+     * The tool call is refused as invalid relates_to, as a JSON-RPC error or a
+     * tool error, never a server error.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    private function assertMcpRefusesRelatesTo(string $tool, array $arguments): void
+    {
+        $response = $this->mcp(['jsonrpc' => '2.0', 'id' => ++$this->nextId, 'method' => 'tools/call', 'params' => ['name' => $tool, 'arguments' => $arguments]]);
+        $refused = $response->json('error.code') === -32602 || $response->json('result.isError') === true;
+        $this->assertTrue($refused, $tool.': '.$response->getContent());
+        $this->assertStringContainsString('relates_to', (string) $response->getContent(), $tool);
+        $this->assertStringNotContainsString('"status":500', (string) $response->getContent(), $tool);
     }
 
     /** @param array<string, mixed> $message */
