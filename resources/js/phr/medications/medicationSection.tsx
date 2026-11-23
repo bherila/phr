@@ -54,12 +54,6 @@ export function isHomeMedication(medication: PhrMedication): boolean {
   return medication.category === null || medication.category === 'community'
 }
 
-/** "as needed for pain", for a medication taken only as needed. */
-export function asNeededText(medication: PhrMedication): string | null {
-  if (medication.as_needed !== true) return null
-  return medication.as_needed_reason ? `as needed for ${medication.as_needed_reason}` : 'as needed'
-}
-
 /** The badge a medication off the home list carries; none for a home medication. */
 export function medicationCategoryLabel(medication: PhrMedication): string | null {
   return isHomeMedication(medication) || medication.category === null ? null : CATEGORY_LABELS[medication.category]

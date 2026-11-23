@@ -139,8 +139,9 @@ the two are related.
 a `MedicationRequest` whose `priorPrescription` or `basedOn` names a `MedicationRequest`
 imported as a home medication is a transition: at admission for an `inpatient` order and at
 discharge for a `discharge` one, in the one stay its `encounter` names, `continued` when the
-two state the same drug (RxNorm code, else name), dose, route and frequency and `changed`
-otherwise. A link whose stay or medication is not imported from the bundle is skipped and
+two state the same drug (RxNorm code, else name), dose, route, frequency and rate, and are
+both as needed for the same reason or both not, and `changed` otherwise: a switch from
+scheduled to as-needed dosing, or a new infusion rate, is a change. A link whose stay or medication is not imported from the bundle is skipped and
 counted in a warning. Imported transitions wait for review.
 
 **C-CDA.** None. A Discharge Medications entry does not reference the home medication it

@@ -178,6 +178,15 @@ final class PhrMedicationTransitionsTest extends TestCase
             ->assertJsonPath('office_visit.medication_transitions.0.order_medication', null)
             ->assertJsonPath('office_visit.medication_transitions.0.note', 'Held for acute kidney injury');
         $this->assertCount(1, $this->getJson("/api/phr/patients/{$patient->id}/medication-transitions?office_visit_id={$stay['visit']->id}")->assertOk()->json('medication_transitions'));
+
+        // A change of dose and of what it is taken for: the page shows both regimens (#439).
+        $stay['acetaminophen']->forceFill(['dose' => '500', 'dose_unit' => 'mg', 'route' => 'oral', 'frequency' => 'every 6 hours', 'as_needed' => true, 'as_needed_reason' => 'pain'])->save();
+        $stay['acetaminophen_650']->forceFill(['dose' => '650', 'dose_unit' => 'mg', 'route' => 'oral', 'frequency' => 'every 6 hours', 'as_needed' => true, 'as_needed_reason' => 'temp > 38.0 C', 'rate' => null])->save();
+        $this->transition($patient, $stay, ['home_medication_id' => $stay['acetaminophen']->id, 'order_medication_id' => $stay['acetaminophen_650']->id, 'phase' => 'admission', 'action' => 'changed']);
+        $changed = collect($this->getJson("/api/phr/patients/{$patient->id}/office-visits/{$stay['visit']->id}")->assertOk()->json('office_visit.medication_transitions'))
+            ->firstWhere('action', 'changed');
+        $this->assertSame(['dose' => '500', 'dose_unit' => 'mg', 'route' => 'oral', 'frequency' => 'every 6 hours', 'as_needed' => true, 'as_needed_reason' => 'pain', 'rate' => null], array_intersect_key($changed['home_medication'], array_flip(['dose', 'dose_unit', 'route', 'frequency', 'as_needed', 'as_needed_reason', 'rate'])));
+        $this->assertSame(['as_needed' => true, 'as_needed_reason' => 'temp > 38.0 C', 'rate' => null], array_intersect_key($changed['order_medication'], array_flip(['as_needed', 'as_needed_reason', 'rate'])));
     }
 
     public function test_fhir_export_references_both_sides_only_when_both_are_exported_and_reads_back_as_the_same_transitions(): void
@@ -267,6 +276,53 @@ final class PhrMedicationTransitionsTest extends TestCase
             ['discharge', 'continued', 'MedicationRequest/home-lisinopril', 'discharge:MedicationRequest/discharge-lisinopril'],
         ], $shapes);
         $this->assertStringContainsString('1 medication transition(s)', implode("\n", $result->warnings));
+    }
+
+    public function test_fhir_import_reads_a_switch_to_as_needed_or_a_new_rate_as_changed(): void
+    {
+        $patient = $this->patient();
+        $encounter = ['reference' => 'Encounter/synthetic-stay'];
+        $category = static fn (string $code): array => [['coding' => [['system' => 'http://terminology.hl7.org/CodeSystem/medicationrequest-category', 'code' => $code]]]];
+        // Every order names its home request, at the same drug, dose, route and frequency;
+        // what differs is whether it is as needed, for what, and its rate.
+        $request = static fn (string $id, string $text, string $code, array $dosage, ?string $home = null): array => ['resource' => [
+            'resourceType' => 'MedicationRequest', 'id' => $id, 'status' => 'active', 'intent' => 'order', 'category' => $category($code),
+            'medicationCodeableConcept' => ['text' => $text],
+            'dosageInstruction' => [['route' => ['text' => 'oral'], 'timing' => ['code' => ['text' => 'every 6 hours']], ...$dosage]],
+            ...($home === null ? [] : ['priorPrescription' => ['reference' => 'MedicationRequest/'.$home], 'encounter' => $encounter]),
+        ]];
+        $dose = static fn (float $value, string $unit, array $rate = []): array => ['doseAndRate' => [['doseQuantity' => ['value' => $value, 'unit' => $unit], ...$rate]]];
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Encounter', 'id' => 'synthetic-stay', 'status' => 'in-progress', 'class' => ['system' => 'http://terminology.hl7.org/CodeSystem/v3-ActCode', 'code' => 'IMP'], 'period' => ['start' => '2026-02-09T14:20:00-08:00']]],
+            $request('home-oxycodone', 'oxycodone', 'community', $dose(5, 'mg')),
+            $request('home-ondansetron', 'ondansetron', 'community', [...$dose(4, 'mg'), 'asNeededCodeableConcept' => ['text' => 'nausea']]),
+            $request('home-acetaminophen', 'acetaminophen', 'community', [...$dose(500, 'mg'), 'asNeededCodeableConcept' => ['text' => 'pain']]),
+            $request('home-heparin', 'heparin', 'community', $dose(1000, 'U', ['rateQuantity' => ['value' => 12, 'unit' => 'mL/h']])),
+            $request('home-famotidine', 'famotidine', 'community', [...$dose(20, 'mg'), 'asNeededBoolean' => false]),
+            // Scheduled at home, as needed in hospital.
+            $request('order-oxycodone', 'oxycodone', 'inpatient', [...$dose(5, 'mg'), 'asNeededCodeableConcept' => ['text' => 'pain']], 'home-oxycodone'),
+            // As needed at home and in hospital, for the same reason: unchanged.
+            $request('order-ondansetron', 'ondansetron', 'inpatient', [...$dose(4, 'mg'), 'asNeededCodeableConcept' => ['text' => 'Nausea']], 'home-ondansetron'),
+            // As needed for another reason.
+            $request('order-acetaminophen', 'acetaminophen', 'inpatient', [...$dose(500, 'mg'), 'asNeededCodeableConcept' => ['text' => 'temp > 38.0 C']], 'home-acetaminophen'),
+            // The same dose at another rate.
+            $request('order-heparin', 'heparin', 'inpatient', $dose(1000, 'U', ['rateQuantity' => ['value' => 18, 'unit' => 'mL/h']]), 'home-heparin'),
+            // Not as needed, said and unsaid: unchanged.
+            $request('order-famotidine', 'famotidine', 'inpatient', $dose(20, 'mg'), 'home-famotidine'),
+        ]];
+
+        app(PhrFhirImporter::class)->importBundle($bundle, $patient, $patient->owner_user_id);
+
+        $names = PhrMedication::query()->where('patient_id', $patient->id)->pluck('external_id', 'id');
+        $actions = PhrMedicationTransition::query()->where('patient_id', $patient->id)->get()
+            ->mapWithKeys(static fn (PhrMedicationTransition $t): array => [$names[$t->home_medication_id] => $t->action])->sortKeys()->all();
+        $this->assertSame([
+            'MedicationRequest/home-acetaminophen' => 'changed',
+            'MedicationRequest/home-famotidine' => 'continued',
+            'MedicationRequest/home-heparin' => 'changed',
+            'MedicationRequest/home-ondansetron' => 'continued',
+            'MedicationRequest/home-oxycodone' => 'changed',
+        ], $actions);
     }
 
     /**

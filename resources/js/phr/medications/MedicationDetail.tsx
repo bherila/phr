@@ -21,7 +21,8 @@ import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrMedication, PhrMedicationResponseSchema } from '@/phr/types'
 
 import { MedicationFormDialog, medicationFormFromMedication, type MedicationFormState, medicationPayload, medicationStatusLabel } from './medicationForm'
-import { asNeededText, medicationCategoryLabel } from './medicationSection'
+import { asNeededText } from './medicationRegimen'
+import { medicationCategoryLabel } from './medicationSection'
 
 const RESOURCE = 'medications'
 

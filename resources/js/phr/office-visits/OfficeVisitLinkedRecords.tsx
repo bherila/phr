@@ -1,6 +1,7 @@
 import { ClipboardList } from 'lucide-react'
 
 import { formatDate } from '@/lib/dateFormat'
+import { medicationRegimenText } from '@/phr/medications/medicationRegimen'
 import type { PhrOfficeVisitLinkedRecord, PhrOfficeVisitLinkedRecords, PhrOfficeVisitMedicationTransition } from '@/phr/types'
 
 interface OfficeVisitLinkedRecordsProps {
@@ -21,6 +22,12 @@ const PHASE_LABELS: Record<PhrOfficeVisitMedicationTransition['phase'], string> 
   discharge: 'Discharge',
 }
 
+/** What the order side of a continued or changed transition is, at each phase. */
+const ORDER_LABELS: Record<PhrOfficeVisitMedicationTransition['phase'], string> = {
+  admission: 'Admission order',
+  discharge: 'Discharge',
+}
+
 function recordName(record: PhrOfficeVisitLinkedRecord): string {
   return record.name ?? record.title ?? record.document_type ?? `Record ${record.id}`
 }
@@ -38,19 +45,47 @@ function recordDetail(record: PhrOfficeVisitLinkedRecord): string {
   ].filter(Boolean).join(' · ')
 }
 
-/** "Admission: changed to insulin lispro sliding scale", "Discharge: continued". */
+function sameName(a: string, b: string): boolean {
+  return a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase()
+}
+
+/**
+ * "Admission: changed to insulin lispro sliding scale", "Discharge: continued". A change to an
+ * order of the same name is just "changed": its regimens say what changed.
+ */
 function transitionStep(transition: PhrOfficeVisitMedicationTransition): string {
-  const order = transition.action === 'changed' && transition.order_medication ? ` to ${transition.order_medication.name}` : ''
+  const { home_medication: home, order_medication: order } = transition
+  const target = transition.action === 'changed' && order && !(home && sameName(home.name, order.name)) ? ` to ${order.name}` : ''
   const pending = transition.review_status === 'pending_review' ? ' (waiting for review)' : ''
 
-  return `${PHASE_LABELS[transition.phase]}: ${transition.action}${order}${pending}`
+  return `${PHASE_LABELS[transition.phase]}: ${transition.action}${target}${pending}`
+}
+
+interface RegimenLine {
+  label: string
+  text: string
 }
 
 interface TransitionRow {
   key: string
   name: string
   steps: string[]
+  /** The home regimen and each continued or changed order's, so a dose or schedule change shows (#439). */
+  regimens: RegimenLine[]
   notes: string[]
+}
+
+/** The regimen lines a continued or changed transition adds to its row: the home one once, then the order's. */
+function regimenLines(row: TransitionRow, transition: PhrOfficeVisitMedicationTransition): RegimenLine[] {
+  const { home_medication: home, order_medication: order } = transition
+  if ((transition.action !== 'continued' && transition.action !== 'changed') || !home || !order) return []
+  const lines: RegimenLine[] = []
+  const homeText = medicationRegimenText(home)
+  if (homeText && !row.regimens.some((line) => line.label === 'Home')) lines.push({ label: 'Home', text: homeText })
+  const orderText = medicationRegimenText(order)
+  if (orderText) lines.push({ label: ORDER_LABELS[transition.phase], text: orderText })
+
+  return lines
 }
 
 /**
@@ -63,8 +98,9 @@ function medicationTransitionRows(transitions: PhrOfficeVisitMedicationTransitio
   for (const transition of ordered) {
     const medication = transition.home_medication ?? transition.order_medication
     const key = transition.home_medication ? `home-${transition.home_medication.id}` : `new-${transition.order_medication?.id ?? transition.id}`
-    const row = rows.get(key) ?? { key, name: medication?.name ?? `Medication change ${transition.id}`, steps: [], notes: [] }
+    const row = rows.get(key) ?? { key, name: medication?.name ?? `Medication change ${transition.id}`, steps: [], regimens: [], notes: [] }
     row.steps.push(transitionStep(transition))
+    row.regimens.push(...regimenLines(row, transition))
     if (transition.note) row.notes.push(transition.note)
     rows.set(key, row)
   }
@@ -119,6 +155,16 @@ export default function OfficeVisitLinkedRecords({ records, transitions }: Offic
                   <li key={row.key} className="px-3 py-2">
                     <p className="text-sm font-medium text-card-foreground">{row.name}</p>
                     <p className="text-xs text-muted-foreground">{row.steps.join(' · ')}</p>
+                    {row.regimens.length > 0 && (
+                      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                        {row.regimens.map((line, index) => (
+                          <div key={`${line.label}-${index}`} className="contents">
+                            <dt className="text-muted-foreground">{line.label}</dt>
+                            <dd className="text-card-foreground">{line.text}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
                     {row.notes.map((note) => (
                       <p key={note} className="text-xs text-muted-foreground">{note}</p>
                     ))}
