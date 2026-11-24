@@ -1,12 +1,30 @@
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, Plus, Unlink } from 'lucide-react'
+import { useState } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
 import { medicationRegimenText } from '@/phr/medications/medicationRegimen'
+import AttachRecordsDialog, { type AttachSummary, type VisitDateRange } from '@/phr/office-visits/AttachRecordsDialog'
+import { detachRecord, GROUP_LINK_TYPES } from '@/phr/office-visits/visitLinksApi'
+import { errorMessage } from '@/phr/shared'
 import type { PhrOfficeVisitLinkedRecord, PhrOfficeVisitLinkedRecords, PhrOfficeVisitMedicationTransition } from '@/phr/types'
+
+/** What an editor needs to attach records to the visit and remove them (#449). */
+export interface OfficeVisitLinkEditing {
+  patientId: number
+  visitId: number | string
+  defaultRange: VisitDateRange
+  /** False for a rejected visit, which takes no new links; its records can still be removed. */
+  canAttach: boolean
+  /** Read the visit again, so the lists show what changed. */
+  onChanged: () => Promise<void>
+}
 
 interface OfficeVisitLinkedRecordsProps {
   records: PhrOfficeVisitLinkedRecords | undefined
   transitions?: PhrOfficeVisitMedicationTransition[] | undefined
+  /** Present only for someone who can edit the patient; a viewer sees the lists alone. */
+  editing?: OfficeVisitLinkEditing | undefined
 }
 
 const GROUPS: ReadonlyArray<{ key: keyof PhrOfficeVisitLinkedRecords; label: string }> = [
@@ -109,22 +127,83 @@ function medicationTransitionRows(transitions: PhrOfficeVisitMedicationTransitio
 }
 
 /** The records linked to a visit as made during it (#411), grouped by kind, and its medication changes (#414). */
-export default function OfficeVisitLinkedRecords({ records, transitions }: OfficeVisitLinkedRecordsProps) {
+export default function OfficeVisitLinkedRecords({ records, transitions, editing }: OfficeVisitLinkedRecordsProps) {
+  const [attaching, setAttaching] = useState(false)
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [summary, setSummary] = useState<AttachSummary | null>(null)
   const groups = GROUPS.map((group) => ({ ...group, items: records?.[group.key] ?? [] }))
     .filter((group) => group.items.length > 0)
   const changes = medicationTransitionRows(transitions ?? [])
 
+  async function remove(group: keyof PhrOfficeVisitLinkedRecords, record: PhrOfficeVisitLinkedRecord): Promise<void> {
+    if (!editing) return
+    const name = recordName(record)
+    setBusyKey(`${group}-${record.id}`)
+    setError(null)
+    setSummary(null)
+    try {
+      await detachRecord(editing.patientId, editing.visitId, GROUP_LINK_TYPES[group], record.id)
+      await editing.onChanged()
+      setSummary({ headline: `Removed ${name} from this visit.`, refusals: [] })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
   return (
     <section className="rounded-lg border border-border bg-card p-4" aria-label="Records from this visit">
-      <div>
-        <h2 className="flex items-center gap-2 font-semibold text-card-foreground">
-          <ClipboardList className="size-4 text-primary" />
-          Records from this visit
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Results, vitals, medications, procedures and documents recorded during this encounter.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold text-card-foreground">
+            <ClipboardList className="size-4 text-primary" />
+            Records from this visit
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Results, vitals, medications, procedures and documents recorded during this encounter.
+          </p>
+        </div>
+        {editing?.canAttach && (
+          <Button type="button" size="sm" variant="outline" onClick={() => { setAttaching(true); setError(null) }}>
+            <Plus className="size-4" />
+            Attach records
+          </Button>
+        )}
       </div>
+      {error && (
+        <p role="alert" className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+      )}
+      <div role="status" aria-live="polite">
+        {summary && (
+          <div className="mt-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+            <p className="text-card-foreground">{summary.headline}</p>
+            {summary.refusals.length > 0 && (
+              <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                {summary.refusals.map((refusal) => <li key={refusal}>{refusal}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+      {editing?.canAttach && attaching && (
+        <AttachRecordsDialog
+          patientId={editing.patientId}
+          visitId={editing.visitId}
+          defaultRange={editing.defaultRange}
+          onClose={() => setAttaching(false)}
+          onAttached={async (_batch, attached) => {
+            setAttaching(false)
+            setSummary(attached)
+            try {
+              await editing.onChanged()
+            } catch (caught) {
+              setError(errorMessage(caught))
+            }
+          }}
+        />
+      )}
       {groups.length === 0 && changes.length === 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">No records are linked to this visit.</p>
       ) : (
@@ -135,11 +214,27 @@ export default function OfficeVisitLinkedRecords({ records, transitions }: Offic
               <ul className="mt-2 divide-y divide-border rounded-md border border-border">
                 {group.items.map((record) => {
                   const detail = recordDetail(record)
+                  const name = recordName(record)
 
                   return (
                     <li key={record.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                      <p className="min-w-0 text-sm font-medium text-card-foreground">{recordName(record)}</p>
-                      {detail && <span className="text-xs text-muted-foreground">{detail}</span>}
+                      <p className="min-w-0 text-sm font-medium text-card-foreground">{name}</p>
+                      <span className="flex items-center gap-2">
+                        {detail && <span className="text-xs text-muted-foreground">{detail}</span>}
+                        {editing && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Remove ${name} from this visit`}
+                            disabled={busyKey !== null}
+                            onClick={() => void remove(group.key, record)}
+                          >
+                            <Unlink className="size-3.5" />
+                            {busyKey === `${group.key}-${record.id}` ? 'Removing…' : 'Remove'}
+                          </Button>
+                        )}
+                      </span>
                     </li>
                   )
                 })}

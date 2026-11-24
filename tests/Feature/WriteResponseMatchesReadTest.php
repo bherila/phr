@@ -104,6 +104,7 @@ final class WriteResponseMatchesReadTest extends TestCase
         'phr.patients.eobs.review' => 'returns the reviewed EOB summary; the EOB has no browser read of its own beyond the service-date lookup',
         'phr.patients.office-visits.eobs.store' => 'returns the link, not the visit',
         'phr.patients.office-visits.imaging-studies.store' => 'returns the link, not the visit',
+        'phr.patients.office-visits.links.store' => 'returns per-record link outcomes, not a record; PhrOfficeVisitLinksTest reads the links back through the visit page and office_visits.get_stay',
         'phr.patients.procedures.eobs.store' => 'returns the link, not the procedure',
         'phr.patients.dicom.uploads.open' => 'returns an upload session',
         'phr.patients.dicom.uploads.files.store' => 'returns upload-session progress',

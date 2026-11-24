@@ -58,6 +58,17 @@ async function addConditionThroughUi(page: Page, patientId: number, name: string
   return payload.condition.id
 }
 
+/** POST JSON through the signed-in session with the page's CSRF token, and return the created record. */
+async function createThroughApi<T>(page: Page, url: string, data: Record<string, unknown>): Promise<T> {
+  const token = await page.locator('meta[name="csrf-token"]').getAttribute('content')
+  const response = await page.request.post(url, {
+    data,
+    headers: { Accept: 'application/json', 'X-CSRF-TOKEN': token ?? '', 'X-Requested-With': 'XMLHttpRequest' },
+  })
+  expect(response.status()).toBe(201)
+  return await response.json() as T
+}
+
 /** The synthetic C-CDA document the PHPUnit suites use, as a file on disk. */
 function syntheticCcda(): string {
   const xmlPath = path.join(mkdtempSync(path.join(tmpdir(), 'phr-e2e-ccda-')), 'synthetic-visit-summary.xml')
@@ -709,5 +720,44 @@ test.describe.serial('PHR browser journeys', () => {
 
     await expect(page.getByText('Approved 1.', { exact: true })).toBeVisible()
     await expect(sidebar.getByRole('link', { name: before - 1 > 0 ? `Review, ${before - 1} waiting for review` : 'Review', exact: true })).toBeVisible()
+  })
+
+  test('attaches an existing lab result to an in-progress stay from its page, then removes it', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
+    // A record made before the stay was entered, so it is on no visit yet.
+    const analyte = `Synthetic attach creatinine ${testInfo.retry}`
+    const { lab_result: lab } = await createThroughApi<{ lab_result: { id: number } }>(page, `/api/phr/patients/${patientId}/lab-results`, {
+      analyte, test_name: 'Synthetic basic metabolic panel', value: '1.8', unit: 'mg/dL', collection_datetime: '2026-03-03 06:00:00',
+    })
+    const { office_visit: stay } = await createThroughApi<{ office_visit: { id: number } }>(page, `/api/phr/patients/${patientId}/office-visits`, {
+      visit_date: '2026-03-02', visit_started_at: '2026-03-02 14:20:00', visit_type: 'Synthetic hospital admission',
+      facility_name: 'Example General Hospital', encounter_class: 'IMP', encounter_state: 'in-progress',
+    })
+
+    await page.goto(`/phr/patient/${patientId}/office-visits/${stay.id}`)
+    const records = page.getByRole('region', { name: 'Records from this visit' })
+    await records.getByRole('button', { name: 'Attach records' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Attach records' })
+    // The search starts from the stay's own dates; an open stay has no end.
+    await expect(dialog.getByLabel('From')).toHaveValue('2026-03-02')
+    await dialog.getByRole('searchbox').fill(analyte)
+    await dialog.getByRole('button', { name: 'Search' }).click()
+    await dialog.getByRole('checkbox', { name: `Select ${analyte}` }).check()
+
+    const attached = page.waitForResponse((response) => response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/phr/patients/${patientId}/office-visits/${stay.id}/links`)
+    await dialog.getByRole('button', { name: 'Attach 1 selected' }).click()
+    const response = await attached
+    expect(response.status()).toBe(200)
+    expect(await response.json()).toMatchObject({ results: [{ type: 'lab-result', id: lab.id, outcome: 'linked' }] })
+
+    await expect(dialog).toBeHidden()
+    await expect(records.getByRole('status')).toContainText('Attached 1 record.')
+    await expect(records.getByText(analyte, { exact: true })).toBeVisible()
+
+    await records.getByRole('button', { name: `Remove ${analyte} from this visit` }).click()
+    await expect(records.getByRole('status')).toContainText(`Removed ${analyte} from this visit.`)
+    await expect(records.getByText(analyte, { exact: true })).toHaveCount(0)
   })
 })
