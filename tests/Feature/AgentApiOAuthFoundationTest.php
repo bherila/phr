@@ -330,6 +330,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'office_visits.link_record',
             'office_visits.unlink_record',
             'office_visits.get_stay',
+            'office_visits.suggest_links',
+            'office_visits.link_records',
             'episodes.link_encounter',
             'episodes.unlink_encounter',
             'imports.review',

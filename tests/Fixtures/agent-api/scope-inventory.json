@@ -536,6 +536,18 @@
         ],
         "scope_rule": "all"
     },
+    "office_visits.link_records": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "office_visits.suggest_links": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
     "office_visits.unlink_record": {
         "scopes": [
             "clinical:read",

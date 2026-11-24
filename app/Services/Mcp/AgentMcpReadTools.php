@@ -300,6 +300,22 @@ final class AgentMcpReadTools
         return $this->api->officeVisitStay($patient_id, $visit_id, $group, $limit, $cursor)->toArray();
     }
 
+    /**
+     * @param  list<string>|null  $types
+     * @return array<string, mixed>
+     */
+    public function officeVisitsSuggestLinks(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $visit_id,
+        #[Schema(minimum: 0, maximum: 14, description: 'Days to widen the window by on each side; an open end never reaches past today.')] int $margin_days = 0,
+        #[Schema(minItems: 1, maxItems: 5, uniqueItems: true, items: ['type' => 'string', 'enum' => ['lab-result', 'vital', 'medication', 'procedure', 'document']], description: 'Suggest only these record types; exactly one with cursor.')] ?array $types = null,
+        #[Schema(enum: ['suggested', 'on_other_visits'], description: 'Read only this list of each type. Required with cursor.')] ?string $list = null,
+        #[Schema(minimum: 1, maximum: 50)] int $limit = 50,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+    ): array {
+        return $this->api->officeVisitLinkSuggestions($patient_id, $visit_id, $margin_days, $types, $list, $limit, $cursor)->toArray();
+    }
+
     /** @return array<string, mixed> */
     public function documentsList(
         #[Schema(minimum: 1)] int $patient_id,

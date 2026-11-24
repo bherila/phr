@@ -246,6 +246,19 @@ final class AgentMcpToolCatalog
                 [$writes, 'officeVisitsLinkRecord'],
                 new WriteSafety(note: 'A repeated link returns outcome unchanged.'),
             ),
+            $this->read(
+                'office_visits.suggest_links',
+                'Suggest records dated inside an encounter',
+                'Read-only, links nothing: the patient\'s records dated inside an office visit or stay that no visit holds yet (suggested), and those another visit holds (on_other_visits: unlink them there first), by type. The window is calendar days as stored: the day the visit started through the day it ended; a stay under way with no end runs to today, any other visit without an end is its one day. margin_days (0 to 14) widens each side. Labs by collection time, vitals by observed time, procedures by performance, documents by authoring time (with documents:read), and only inpatient or discharge medications by start: home medications are never suggested. Each list is by date, at most limit records with its total; page one list with that type alone in types, list and the next_cursor it returned. Read the stay first (office_visits_get_stay), show the person the candidates, and link only those they confirm with office_visits_link_records.',
+                [$reads, 'officeVisitsSuggestLinks'],
+            ),
+            $this->write(
+                'office_visits.link_records',
+                'Link several records to their encounter',
+                'Link up to 100 records the person confirmed to an office visit (encounter), each as office_visits_link_record would, each with its own outcome: linked, unchanged, or refused with a reason (linked_elsewhere, naming linked_visit; rejected; not_found; insufficient_scope for a document without documents:read). One refusal leaves the others linked. Never link suggestions the person has not confirmed. Only evidence is written: no record\'s version or review status changes.',
+                [$writes, 'officeVisitsLinkRecords'],
+                new WriteSafety(note: 'A repeated link returns outcome unchanged for each record.'),
+            ),
             $this->write(
                 'office_visits.unlink_record',
                 'Unlink a record from its encounter',

@@ -185,7 +185,7 @@ describe('review decision paths', () => {
     'data-hub/DataHubPage.tsx': 'exports and backups read the record; a deleted patient leaves the list; a native restore creates a new patient, which has nothing cached',
     'documents/DocumentViewer.tsx': 'sends a document to AI; proposals arrive later, and an AI import is counted when its results are read',
     'imaging/explore3d/pipeline/useVolumePipeline.ts': 'stores a derived volume cache for a series; no study is added',
-    'office-visits/visitLinksApi.ts': 'attaches records to a visit or removes them; a link is evidence that changes no record\'s review status or any section count, as on the agent\'s link path',
+    'office-visits/visitLinksApi.ts': 'attaches records to a visit (chosen in the attach dialog or confirmed from its suggestions, #450) or removes them; a link is evidence that changes no record\'s review status or any section count, as on the agent\'s link path',
     'patients/PatientForm.tsx': 'creates a patient, which has nothing cached',
     'patients-manage/PatientsManagePage.tsx': 'creates a patient or edits its profile fields; neither is counted',
     'summary/SummaryPage.tsx': 'requests an export, which only reads the record',

@@ -239,6 +239,18 @@
             "clinical:write"
         ]
     },
+    "office_visits.suggest_links": {
+        "available": true,
+        "scope": "clinical:read"
+    },
+    "office_visits.link_records": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
     "office_visits.unlink_record": {
         "available": true,
         "scope": "clinical:write",

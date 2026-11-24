@@ -245,16 +245,17 @@ final class AgentMcpReadAdapterTest extends TestCase
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
             'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update',
             'clinical.resolve', 'clinical.retract', 'clinical.delete', 'documents.delete', 'patients.update',
-            'health_logs.update', 'health_logs.delete', 'health_log_entries.update', 'health_log_entries.delete', 'respiratory_events.delete', 'eobs.delete'] as $name) {
+            'health_logs.update', 'health_logs.delete', 'health_log_entries.update', 'health_log_entries.delete', 'respiratory_events.delete', 'eobs.delete',
+            'office_visits.suggest_links', 'office_visits.link_records'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            82 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            84 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
             'patients.create', 'documents.upload', 'documents.create_text', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'medication_fills.resolve_duplicate', 'imports.create', 'imports.review', 'imports.retry',
-            'medication_fills.answer_eob_link', 'office_visits.link_record', 'office_visits.unlink_record', 'episodes.link_encounter', 'episodes.unlink_encounter', 'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
+            'medication_fills.answer_eob_link', 'office_visits.link_record', 'office_visits.link_records', 'office_visits.unlink_record', 'episodes.link_encounter', 'episodes.unlink_encounter', 'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
             'exports.create', 'native_backups.create',

@@ -754,10 +754,74 @@ test.describe.serial('PHR browser journeys', () => {
 
     await expect(dialog).toBeHidden()
     await expect(records.getByRole('status')).toContainText('Attached 1 record.')
-    await expect(records.getByText(analyte, { exact: true })).toBeVisible()
+    await expect(records.getByRole('button', { name: `Remove ${analyte} from this visit` })).toBeVisible()
 
     await records.getByRole('button', { name: `Remove ${analyte} from this visit` }).click()
     await expect(records.getByRole('status')).toContainText(`Removed ${analyte} from this visit.`)
-    await expect(records.getByText(analyte, { exact: true })).toHaveCount(0)
+    await expect(records.getByRole('button', { name: `Remove ${analyte} from this visit` })).toHaveCount(0)
+    // Off the stay but dated inside it, so it is suggested for it again (#450).
+    await expect(records.getByRole('region', { name: 'Suggested from these dates' }).getByRole('checkbox', { name: `Select ${analyte}` })).toBeChecked()
+  })
+
+  test('confirms the records a finished stay suggests from its dates, widened by a day', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
+    // Dates no other journey uses, so the stay suggests only these records.
+    const name = (label: string) => `Synthetic suggested ${label} ${testInfo.retry}`
+    const lab = async (label: string, collected: string) => (await createThroughApi<{ lab_result: { id: number } }>(page, `/api/phr/patients/${patientId}/lab-results`, {
+      analyte: name(label), test_name: 'Synthetic basic metabolic panel', value: '1.8', unit: 'mg/dL', collection_datetime: collected,
+    })).lab_result.id
+    const visit = async (fields: Record<string, unknown>) => (await createThroughApi<{ office_visit: { id: number } }>(page, `/api/phr/patients/${patientId}/office-visits`, {
+      facility_name: 'Example General Hospital', ...fields,
+    })).office_visit.id
+    const stayId = await visit({
+      visit_date: '2019-05-06', visit_started_at: '2019-05-06 09:00:00', visit_ended_at: '2019-05-10 11:00:00',
+      visit_type: 'Synthetic hospital admission', encounter_class: 'IMP', encounter_state: 'finished',
+    })
+    const consultId = await visit({ visit_date: '2019-05-08', visit_type: 'Synthetic consult', encounter_class: 'AMB', encounter_state: 'finished' })
+    const creatinine = await lab('creatinine', '2019-05-07 06:00:00')
+    const potassium = await lab('potassium', '2019-05-08 06:00:00')
+    const sodium = await lab('sodium', '2019-05-05 06:00:00')
+    const glucose = await lab('glucose', '2019-05-09 06:00:00')
+    // The glucose is already on the consult, so the stay shows it but can't take it.
+    const token = await page.locator('meta[name="csrf-token"]').getAttribute('content')
+    const onConsult = await page.request.post(`/api/phr/patients/${patientId}/office-visits/${consultId}/links`, {
+      data: { links: [{ type: 'lab-result', id: glucose }] },
+      headers: { Accept: 'application/json', 'X-CSRF-TOKEN': token ?? '', 'X-Requested-With': 'XMLHttpRequest' },
+    })
+    expect(onConsult.status()).toBe(200)
+
+    await page.goto(`/phr/patient/${patientId}/office-visits/${stayId}`)
+    const records = page.getByRole('region', { name: 'Records from this visit' })
+    const suggested = records.getByRole('region', { name: 'Suggested from these dates' })
+    await expect(suggested.getByRole('checkbox', { name: `Select ${name('creatinine')}` })).toBeChecked({ timeout: 15_000 })
+    await expect(suggested.getByRole('checkbox', { name: `Select ${name('potassium')}` })).toBeChecked()
+    await expect(suggested.getByRole('checkbox', { name: `Select ${name('glucose')}` })).toBeDisabled()
+    await expect(suggested.getByRole('checkbox', { name: `Select ${name('glucose')}` })).not.toBeChecked()
+    await expect(suggested.getByText(name('sodium'), { exact: true })).toHaveCount(0)
+
+    // A day either side brings in the lab drawn the day before admission.
+    await suggested.getByLabel('Include').selectOption({ label: '1 day either side' })
+    await expect(suggested.getByRole('checkbox', { name: `Select ${name('sodium')}` })).toBeChecked({ timeout: 15_000 })
+    // The person decides the potassium doesn't belong to this stay.
+    await suggested.getByRole('checkbox', { name: `Select ${name('potassium')}` }).uncheck()
+
+    const attached = page.waitForResponse((response) => response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/phr/patients/${patientId}/office-visits/${stayId}/links`)
+    await suggested.getByRole('button', { name: 'Attach selected' }).click()
+    const response = await attached
+    expect(response.status()).toBe(200)
+    const sent = (response.request().postDataJSON() as { links: Array<{ type: string, id: number }> }).links.map((link) => link.id)
+    expect(sent).toEqual(expect.arrayContaining([creatinine, sodium]))
+    expect(sent).not.toContain(potassium)
+    expect(sent).not.toContain(glucose)
+    expect(await response.json()).toMatchObject({ summary: { refused: 0 } })
+
+    await expect(records.getByRole('status')).toContainText('Attached', { timeout: 15_000 })
+    await expect(records.getByRole('button', { name: `Remove ${name('creatinine')} from this visit` })).toBeVisible()
+    await expect(records.getByRole('button', { name: `Remove ${name('sodium')} from this visit` })).toBeVisible()
+    // What was attached is no longer suggested; the potassium still is.
+    await expect(suggested.getByRole('checkbox', { name: `Select ${name('creatinine')}` })).toHaveCount(0, { timeout: 15_000 })
+    await expect(suggested.getByRole('checkbox', { name: `Select ${name('potassium')}` })).toBeVisible()
   })
 })

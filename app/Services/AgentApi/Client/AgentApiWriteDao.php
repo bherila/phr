@@ -295,6 +295,16 @@ final readonly class AgentApiWriteDao
         ), ['resource_type', 'patient_id', 'outcome', 'data']);
     }
 
+    /** @param  list<array{resource_type: string, resource_id: int}>  $links */
+    public function officeVisitLinkRecords(int $patientId, int $visitId, array $links): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/office-visits/{$visitId}/links/batch",
+            json: ['links' => $links],
+        ), ['resource_type', 'patient_id', 'data']);
+    }
+
     public function officeVisitUnlinkRecord(int $patientId, int $visitId, string $resourceType, int $resourceId): AgentApiPayload
     {
         return AgentApiPayload::item($this->transport->send(

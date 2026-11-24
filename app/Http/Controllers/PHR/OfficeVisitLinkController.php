@@ -8,6 +8,8 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Encounters\PhrEncounterLinkBatch;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Services\PHR\Encounters\PhrLinkableRecords;
+use App\Services\PHR\Encounters\PhrLinkSuggestions;
+use App\Support\PHR\Validation\LinkSuggestionQuery;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -18,7 +20,8 @@ use Illuminate\Validation\Rule;
  * `office_visits.link_record` / `unlink_record`: one standing visit per record, nothing
  * linked to or from a rejected record or visit, and no record's version, review status or
  * change-feed position moves. Only people who can edit the patient use these; a viewer
- * reads the links on the visit itself.
+ * reads the links on the visit itself. The stay's suggestions (#450) are confirmed through
+ * the same batch `links`.
  */
 final class OfficeVisitLinkController extends Controller
 {
@@ -53,6 +56,31 @@ final class OfficeVisitLinkController extends Controller
                 ],
                 (int) ($validated['limit'] ?? PhrLinkableRecords::DEFAULT_LIMIT),
                 isset($validated['cursor']) ? (string) $validated['cursor'] : null,
+            ),
+        ]);
+    }
+
+    /**
+     * The records dated inside the stay that no visit holds yet, and those another visit
+     * holds, for the visit page's "Suggested from these dates" panel (#450). Nothing is
+     * linked until the person confirms through `links`.
+     */
+    public function suggestions(Request $request, int $patient, int $visit, PhrLinkSuggestions $suggestions): JsonResponse
+    {
+        $validated = LinkSuggestionQuery::validate($request);
+        $patientId = (int) $this->accessService->writablePatient($patient, (int) $request->user()?->id)->id;
+        $resolved = PhrOfficeVisit::query()->where('patient_id', $patientId)->whereNull('retracted_at')->findOrFail($visit);
+
+        return response()->json([
+            'office_visit_id' => (int) $resolved->id,
+            ...$suggestions->suggest(
+                $patientId,
+                $resolved,
+                $validated['types'] ?? PhrEncounterLinks::types(),
+                $validated['margin_days'],
+                $validated['limit'],
+                $validated['list'],
+                $validated['cursor'],
             ),
         ]);
     }

@@ -270,6 +270,8 @@
                 "ndc.search",
                 "office_visits.get_stay",
                 "office_visits.link_record",
+                "office_visits.link_records",
+                "office_visits.suggest_links",
                 "office_visits.unlink_record",
                 "office_visits.update",
                 "office_visits.upsert",
@@ -399,6 +401,8 @@
                 "ndc.search",
                 "office_visits.get_stay",
                 "office_visits.link_record",
+                "office_visits.link_records",
+                "office_visits.suggest_links",
                 "office_visits.unlink_record",
                 "office_visits.update",
                 "office_visits.upsert",
@@ -1526,6 +1530,32 @@
             "name": "office_visits.link_record",
             "outputSchema": "sha256:6dc6fc01eaadffd220e18ed800ecfdd2f5954dbe28e8af0dd4d86581c45995ff",
             "title": "Link a record to its encounter"
+        },
+        "office_visits.link_records": {
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Link up to 100 records the person confirmed to an office visit (encounter), each as office_visits_link_record would, each with its own outcome: linked, unchanged, or refused with a reason (linked_elsewhere, naming linked_visit; rejected; not_found; insufficient_scope for a document without documents:read). One refusal leaves the others linked. Never link suggestions the person has not confirmed. Only evidence is written: no record's version or review status changes.",
+            "inputSchema": "sha256:8f407c15ac2b78146a3023c1b1ca197b257e7481b7d8de92da0eee5a40b67daa",
+            "name": "office_visits.link_records",
+            "outputSchema": "sha256:840deb4ff46245d663a164b906d3649954a24d639926ac65ddc3facc0077df7b",
+            "title": "Link several records to their encounter"
+        },
+        "office_visits.suggest_links": {
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Read-only, links nothing: the patient's records dated inside an office visit or stay that no visit holds yet (suggested), and those another visit holds (on_other_visits: unlink them there first), by type. The window is calendar days as stored: the day the visit started through the day it ended; a stay under way with no end runs to today, any other visit without an end is its one day. margin_days (0 to 14) widens each side. Labs by collection time, vitals by observed time, procedures by performance, documents by authoring time (with documents:read), and only inpatient or discharge medications by start: home medications are never suggested. Each list is by date, at most limit records with its total; page one list with that type alone in types, list and the next_cursor it returned. Read the stay first (office_visits_get_stay), show the person the candidates, and link only those they confirm with office_visits_link_records.",
+            "inputSchema": "sha256:99890c6af76a7ac0699e89f7be555579e39309ee33ba45a116a12edde8b216dc",
+            "name": "office_visits.suggest_links",
+            "outputSchema": "sha256:8648c4a78bae91a153dec4b3ec9f31870f4c6e64e40222b580a711942645c60d",
+            "title": "Suggest records dated inside an encounter"
         },
         "office_visits.unlink_record": {
             "annotations": {

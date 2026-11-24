@@ -50,7 +50,10 @@ beforeEach(() => {
   mockGet.mockReset()
   mockPost.mockReset()
   mockDelete.mockReset()
-  mockGet.mockImplementation((url: string) => Promise.resolve(url.includes('type=document') ? NOTES : LABS))
+  mockGet.mockImplementation((url: string) => Promise.resolve(
+    // The suggestions panel (#450) finds nothing here; LinkSuggestionsPanel.test.tsx covers it.
+    url.includes('/link-suggestions?') ? { office_visit_id: 18, window: null, groups: {} } : url.includes('type=document') ? NOTES : LABS,
+  ))
 })
 
 describe('visitDateRange', () => {

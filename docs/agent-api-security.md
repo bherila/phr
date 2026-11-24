@@ -608,8 +608,8 @@ path in the MCP server.
 rule in `App\Services\Mcp\AgentMcpToolsets::toolsetFor()` assigns it by the tool's
 resource (its name before the first dot), so a new tool on an existing resource joins
 that resource's toolset; a tool on an unmapped resource fails the server build and the
-membership test. For a full-scope token this cuts `tools/list` from 95 tools (about
-285 KB) to 12 (about 28 KB).
+membership test. For a full-scope token this cuts `tools/list` from 97 tools (about
+290 KB) to 12 (about 28 KB).
 
 Listing is about context size, never permission. Scope filtering runs first:
 `toolsets.list` offers only toolsets holding a tool the token may call, enabling one
