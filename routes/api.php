@@ -48,6 +48,7 @@ use App\Http\Controllers\PHR\MedicationFillController as PHRMedicationFillContro
 use App\Http\Controllers\PHR\MedicationTransitionController as PHRMedicationTransitionController;
 use App\Http\Controllers\PHR\NdcController as PHRNdcController;
 use App\Http\Controllers\PHR\OfficeVisitController as PHROfficeVisitController;
+use App\Http\Controllers\PHR\OfficeVisitLinkController as PHROfficeVisitLinkController;
 use App\Http\Controllers\PHR\PatientAccessController as PHRPatientAccessController;
 use App\Http\Controllers\PHR\PatientController as PHRPatientController;
 use App\Http\Controllers\PHR\PhrAiImportController;
@@ -74,6 +75,7 @@ use App\Http\Middleware\EnsureOAuthUserCanLogin;
 use App\Http\Middleware\ExpectAnyOAuthResource;
 use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
 use App\Http\Middleware\PreventAgentApiResponseCaching;
+use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Bherila\GenAiLaravel\Mcp\Http\AttachmentController as GenAiAttachmentController;
 use Bherila\GenAiLaravel\Mcp\Http\McpApiController as GenAiMcpApiController;
@@ -510,6 +512,10 @@ Route::middleware(['web', 'auth'])
         Route::delete('/patients/{patient}/office-visits/{visit}/eobs/{eob}', [PHRClinicalEobController::class, 'unlinkOfficeVisit'])->whereNumber(['patient', 'visit', 'eob'])->name('patients.office-visits.eobs.destroy');
         Route::post('/patients/{patient}/office-visits/{visit}/imaging-studies/{study}', [PHROfficeVisitController::class, 'linkImagingStudy'])->whereNumber(['patient', 'visit', 'study'])->name('patients.office-visits.imaging-studies.store');
         Route::delete('/patients/{patient}/office-visits/{visit}/imaging-studies/{study}', [PHROfficeVisitController::class, 'unlinkImagingStudy'])->whereNumber(['patient', 'visit', 'study'])->name('patients.office-visits.imaging-studies.destroy');
+        // Attach existing records to a visit or stay, and remove them (#449).
+        Route::get('/patients/{patient}/office-visits/{visit}/linkable-records', [PHROfficeVisitLinkController::class, 'linkable'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.linkable-records.index');
+        Route::post('/patients/{patient}/office-visits/{visit}/links', [PHROfficeVisitLinkController::class, 'link'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.links.store');
+        Route::delete('/patients/{patient}/office-visits/{visit}/links/{type}/{record}', [PHROfficeVisitLinkController::class, 'unlink'])->whereNumber(['patient', 'visit', 'record'])->whereIn('type', PhrEncounterLinks::types())->name('patients.office-visits.links.destroy');
         Route::patch('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'update'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.update');
         Route::delete('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'destroy'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.destroy');
         Route::patch('/patients/{patient}/office-visits/{visit}/review', [PHROfficeVisitController::class, 'review'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.review');

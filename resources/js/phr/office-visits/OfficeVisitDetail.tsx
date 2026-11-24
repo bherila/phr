@@ -9,6 +9,7 @@ import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { visitDateRange } from '@/phr/office-visits/AttachRecordsDialog'
 import { encounterFacts } from '@/phr/office-visits/encounterLabels'
 import OfficeVisitCareTeam from '@/phr/office-visits/OfficeVisitCareTeam'
 import OfficeVisitEpisodes from '@/phr/office-visits/OfficeVisitEpisodes'
@@ -102,6 +103,22 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
       cancelled = true
     }
   }, [patientId, recordId, refreshNonce])
+
+  /** Read the visit again in place, after its links changed, without blanking the page. */
+  async function reloadVisit(): Promise<void> {
+    const result = await fetchPhrDetail(
+      `/api/phr/patients/${patientId}/office-visits/${recordId}`,
+      PhrOfficeVisitResponseSchema,
+    )
+    if (result.notFound) {
+      setNotFound(true)
+      return
+    }
+    if (result.data) {
+      setVisit(result.data.office_visit)
+      setCanManage(result.data.can_manage ?? false)
+    }
+  }
 
   async function reviewVisit(decision: PhrReviewDecision): Promise<void> {
     if (!visit) return
@@ -265,7 +282,20 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
             )}
           </section>
           <OfficeVisitEpisodes patientId={patientId} visitId={recordId} onDrill={onDrill} />
-          <OfficeVisitLinkedRecords records={visit.linked_records} transitions={visit.medication_transitions} />
+          <OfficeVisitLinkedRecords
+            records={visit.linked_records}
+            transitions={visit.medication_transitions}
+            editing={canManage
+              ? {
+                  patientId,
+                  visitId: recordId,
+                  defaultRange: visitDateRange(visit),
+                  // A rejected visit takes no new links, but its records can still be moved off it.
+                  canAttach: visit.review_status !== 'rejected',
+                  onChanged: reloadVisit,
+                }
+              : undefined}
+          />
           <section className="rounded-lg border border-border bg-card p-4">
             <div>
               <h2 className="flex items-center gap-2 font-semibold text-card-foreground">

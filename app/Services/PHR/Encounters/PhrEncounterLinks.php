@@ -14,8 +14,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * The records made during an encounter: documents, lab results, vitals, medications and
@@ -83,6 +81,9 @@ final class PhrEncounterLinks
      * Link a record to a visit on a person's (or their agent's) instruction. A record already
      * on another standing visit is a conflict: it belongs to one encounter, and moving it is
      * an unlink and a link. A link to a visit that no longer stands is replaced.
+     *
+     * A refusal is an EncounterLinkRefused (409) or EncounterLinkTargetMissing (404), which
+     * say why, for callers that report it per record (PhrEncounterLinkBatch).
      */
     public function link(int $patientId, int $visitId, string $type, int $recordId): string
     {
@@ -90,14 +91,14 @@ final class PhrEncounterLinks
 
         return DB::transaction(function () use ($patientId, $visitId, $type, $recordId, $definition): string {
             $visit = PhrOfficeVisit::query()->where('patient_id', $patientId)->whereNull('retracted_at')->lockForUpdate()->find($visitId)
-                ?? throw new NotFoundHttpException('Office visit not found.');
+                ?? throw new EncounterLinkTargetMissing(EncounterLinkTargetMissing::VISIT, 'Office visit not found.');
             if ($visit->review_status === PhrReviewStatus::REJECTED) {
-                throw new ConflictHttpException('A rejected visit cannot take new links.');
+                throw new EncounterLinkRefused(EncounterLinkRefused::VISIT_REJECTED, 'A rejected visit cannot take new links.');
             }
             $record = $this->standingRecord($patientId, $type, $recordId)
-                ?? throw new NotFoundHttpException('Record not found.');
+                ?? throw new EncounterLinkTargetMissing(EncounterLinkTargetMissing::RECORD, 'Record not found.');
             if ($record->getAttribute('review_status') === PhrReviewStatus::REJECTED) {
-                throw new ConflictHttpException('A rejected record cannot be linked.');
+                throw new EncounterLinkRefused(EncounterLinkRefused::REJECTED, 'A rejected record cannot be linked.');
             }
 
             $existing = DB::table($definition['table'])->where($definition['column'], $recordId)->lockForUpdate()->first();
@@ -106,7 +107,11 @@ final class PhrEncounterLinks
                     return self::UNCHANGED;
                 }
                 if ($this->visitStands((int) $existing->office_visit_id)) {
-                    throw new ConflictHttpException(sprintf('This record is already linked to office visit %d. Unlink it there first.', (int) $existing->office_visit_id));
+                    throw new EncounterLinkRefused(
+                        EncounterLinkRefused::LINKED_ELSEWHERE,
+                        sprintf('This record is already linked to office visit %d. Unlink it there first.', (int) $existing->office_visit_id),
+                        (int) $existing->office_visit_id,
+                    );
                 }
                 DB::table($definition['table'])->where('id', $existing->id)->delete();
             }

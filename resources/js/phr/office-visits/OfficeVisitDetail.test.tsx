@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import OfficeVisitDetail from './OfficeVisitDetail'
 
@@ -191,6 +191,46 @@ describe('OfficeVisitDetail', () => {
     const infusion = screen.getByText('heparin').closest('li') as HTMLElement
     expect(infusion).toHaveTextContent('Home1000 U · IV · at 12 mL/h')
     expect(infusion).toHaveTextContent('Admission order1000 U · IV · at 18 mL/h')
+  })
+
+  it('lets an editor remove a linked record and reads the visit again without blanking the page', async () => {
+    const lab = { id: 5, name: 'Creatinine', value: '1.8', unit: 'mg/dL', observed_at: '2026-02-11 06:00:00' }
+    const linked = (labs: unknown[]) => ({ ...VISIT, linked_records: { lab_results: labs, vitals: [], medications: [], procedures: [], documents: [] } })
+    let current = linked([lab])
+    let visitReads = 0
+    jest.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (init?.method === 'DELETE' && url === '/api/phr/patients/42/office-visits/18/links/lab-result/5') {
+        current = linked([])
+        return Promise.resolve(jsonResponse({ office_visit_id: 18, type: 'lab-result', id: 5, outcome: 'unlinked' }))
+      }
+      if (url === '/api/phr/patients/42/office-visits/18') {
+        visitReads += 1
+        return Promise.resolve(jsonResponse({ office_visit: current, can_manage: true }))
+      }
+      return Promise.resolve(jsonResponse({ episodes: [] }))
+    })
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByRole('button', { name: 'Attach records' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Creatinine from this visit' }))
+
+    expect(await screen.findByText('Removed Creatinine from this visit.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('No records are linked to this visit.')).toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: 'Related services' })).toBeInTheDocument()
+    expect(visitReads).toBe(2)
+  })
+
+  it('shows a viewer the linked records without attach or remove controls', async () => {
+    const stay = { ...VISIT, linked_records: { lab_results: [{ id: 5, name: 'Creatinine' }], vitals: [], medications: [], procedures: [], documents: [] } }
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: stay, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByText('Creatinine')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Attach records' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove Creatinine from this visit' })).not.toBeInTheDocument()
   })
 
   it('says when no records are linked to a visit', async () => {
