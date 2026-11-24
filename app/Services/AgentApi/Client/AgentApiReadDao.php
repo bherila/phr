@@ -221,6 +221,25 @@ final class AgentApiReadDao
         ], ['resource_type', 'patient_id', 'data']);
     }
 
+    /** @param  list<string>|null  $types */
+    public function officeVisitLinkSuggestions(
+        int $patientId,
+        int $visitId,
+        int $marginDays = 0,
+        ?array $types = null,
+        ?string $list = null,
+        int $limit = 50,
+        ?string $cursor = null,
+    ): AgentApiPayload {
+        return $this->get("patients/{$patientId}/office-visits/{$visitId}/link-suggestions", [
+            'margin_days' => $marginDays,
+            'types' => $types,
+            'list' => $list,
+            'limit' => $limit,
+            'cursor' => $cursor,
+        ], ['resource_type', 'patient_id', 'data']);
+    }
+
     public function documents(
         int $patientId,
         int $limit = 25,

@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
 import { medicationRegimenText } from '@/phr/medications/medicationRegimen'
 import AttachRecordsDialog, { type AttachSummary, type VisitDateRange } from '@/phr/office-visits/AttachRecordsDialog'
+import LinkSuggestionsPanel from '@/phr/office-visits/LinkSuggestionsPanel'
 import { detachRecord, GROUP_LINK_TYPES } from '@/phr/office-visits/visitLinksApi'
 import { errorMessage } from '@/phr/shared'
 import type { PhrOfficeVisitLinkedRecord, PhrOfficeVisitLinkedRecords, PhrOfficeVisitMedicationTransition } from '@/phr/types'
 
-/** What an editor needs to attach records to the visit and remove them (#449). */
+/** What an editor needs to attach records to the visit, confirm its suggestions (#450) and remove them (#449). */
 export interface OfficeVisitLinkEditing {
   patientId: number
   visitId: number | string
@@ -132,6 +133,8 @@ export default function OfficeVisitLinkedRecords({ records, transitions, editing
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<AttachSummary | null>(null)
+  // Bumped after every change to the links, so the suggestions are read again.
+  const [linksVersion, setLinksVersion] = useState(0)
   const groups = GROUPS.map((group) => ({ ...group, items: records?.[group.key] ?? [] }))
     .filter((group) => group.items.length > 0)
   const changes = medicationTransitionRows(transitions ?? [])
@@ -144,12 +147,24 @@ export default function OfficeVisitLinkedRecords({ records, transitions, editing
     setSummary(null)
     try {
       await detachRecord(editing.patientId, editing.visitId, GROUP_LINK_TYPES[group], record.id)
+      setLinksVersion((version) => version + 1)
       await editing.onChanged()
       setSummary({ headline: `Removed ${name} from this visit.`, refusals: [] })
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
       setBusyKey(null)
+    }
+  }
+
+  /** Show what an attach did, then read the visit and its suggestions again. */
+  async function afterAttach(attached: AttachSummary): Promise<void> {
+    setSummary(attached)
+    setLinksVersion((version) => version + 1)
+    try {
+      await editing?.onChanged()
+    } catch (caught) {
+      setError(errorMessage(caught))
     }
   }
 
@@ -195,13 +210,16 @@ export default function OfficeVisitLinkedRecords({ records, transitions, editing
           onClose={() => setAttaching(false)}
           onAttached={async (_batch, attached) => {
             setAttaching(false)
-            setSummary(attached)
-            try {
-              await editing.onChanged()
-            } catch (caught) {
-              setError(errorMessage(caught))
-            }
+            await afterAttach(attached)
           }}
+        />
+      )}
+      {editing?.canAttach && (
+        <LinkSuggestionsPanel
+          patientId={editing.patientId}
+          visitId={editing.visitId}
+          refreshKey={linksVersion}
+          onAttached={afterAttach}
         />
       )}
       {groups.length === 0 && changes.length === 0 ? (

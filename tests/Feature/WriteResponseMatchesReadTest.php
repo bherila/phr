@@ -64,6 +64,7 @@ final class WriteResponseMatchesReadTest extends TestCase
         'agent-api.v1.clinical.medication_transitions.upsert' => 'a transition names a visit and medications the generic provider cannot create; PhrMedicationTransitionsTest pins that its data is exactly what clinical.get reads',
         'phr.patients.medication-transitions.review' => 'transitions have no browser create to pair it with; PhrMedicationTransitionsTest pins that its response is exactly what a later GET reads',
         'agent-api.v1.office-visits.link-record' => 'returns the link outcome, not a record; PhrEncounterLinksTest reads the link back as encounter_id',
+        'agent-api.v1.office-visits.link-records' => 'returns per-record link outcomes, not a record; PhrLinkSuggestionsTest reads the links back through office_visits.get_stay',
         'agent-api.v1.episodes.link-encounter' => 'returns the link outcome, not a record; PhrEpisodesTest reads the link back as encounter_ids',
         'agent-api.v1.medication-fills.resolve-duplicate' => 'returns the decision (outcome, merged_into_fill_id); a merged fill is retracted and leaves every read. MedicationFillDuplicateResolutionTest pins it',
         'phr.patients.medication-fills.resolve-duplicate' => 'returns the decision and the fill as the browser reads it; MedicationFillDuplicateResolutionTest pins it',

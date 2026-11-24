@@ -123,6 +123,11 @@ home medication a transition of the stay names, with its transitions (admission 
 bound; a sync reads them with `clinical.list` and `updated_after`. A transition is never
 inferred from similar names.
 
+A stay's link suggestions (#450: the visit page's "Suggested from these dates", and
+`office_visits.suggest_links`) offer only the stay's own orders, `inpatient` and `discharge`
+medications started inside it. A home (`community`), clinic or unknown medication is never
+suggested: what a stay did to it is a transition, not a link.
+
 **FHIR export.** Only a confirmed, standing transition whose visit and medications the
 export also carries is exported; one naming a record it leaves out is dropped. R4
 `MedicationRequest.priorPrescription` and `basedOn` reference only a `MedicationRequest`

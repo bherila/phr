@@ -26,6 +26,9 @@ final class PhrEncounterLinkBatch
     /** The record is not the patient's, or was retracted or deleted. */
     public const string NOT_FOUND = 'not_found';
 
+    /** The credential may not link a record of this type (an agent's document link needs documents:read). */
+    public const string INSUFFICIENT_SCOPE = 'insufficient_scope';
+
     public function __construct(private PhrEncounterLinks $links) {}
 
     /**

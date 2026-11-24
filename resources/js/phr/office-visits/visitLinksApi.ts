@@ -77,6 +77,44 @@ export type LinkBatch = z.infer<typeof LinkBatchResponseSchema>
 
 const UnlinkResponseSchema = z.object({ outcome: z.enum(['unlinked', 'unchanged']) })
 
+/** The two lists a stay's suggestions hold for each type (#450). */
+export const SUGGESTION_LISTS = ['suggested', 'on_other_visits'] as const
+export type SuggestionListName = (typeof SUGGESTION_LISTS)[number]
+
+const SuggestionListSchema = z.object({
+  records: z.array(LinkableRecordSchema),
+  total: z.number(),
+  next_cursor: z.string().nullable(),
+})
+export type SuggestionList = z.infer<typeof SuggestionListSchema>
+
+const SuggestionGroupSchema = z.object({
+  suggested: SuggestionListSchema.optional(),
+  on_other_visits: SuggestionListSchema.optional(),
+})
+
+const LinkSuggestionsResponseSchema = z.object({
+  office_visit_id: z.number(),
+  window: z.object({
+    from: z.string(),
+    to: z.string(),
+    open: z.boolean(),
+    margin_days: z.number(),
+  }).nullable(),
+  groups: z.partialRecord(z.enum(VISIT_LINK_TYPES), SuggestionGroupSchema),
+})
+export type LinkSuggestions = z.infer<typeof LinkSuggestionsResponseSchema>
+export type SuggestionWindow = NonNullable<LinkSuggestions['window']>
+
+export interface LinkSuggestionsQuery {
+  marginDays: number
+  /** Page one list of one type. */
+  page?: { type: VisitLinkType, list: SuggestionListName, cursor: string }
+}
+
+/** The most days a suggestion window widens on each side (the server's own bound). */
+export const MAX_MARGIN_DAYS = 14
+
 export interface LinkableRecordsQuery {
   type: VisitLinkType
   q?: string
@@ -98,6 +136,19 @@ export async function fetchLinkableRecords(patientId: number, visitId: number | 
   const raw: unknown = await fetchWrapper.get(`${visitUrl(patientId, visitId)}/linkable-records?${params.toString()}`)
 
   return LinkableRecordsResponseSchema.parse(raw)
+}
+
+/** The records dated inside the stay, for the person to confirm (#450). It links nothing. */
+export async function fetchLinkSuggestions(patientId: number, visitId: number | string, query: LinkSuggestionsQuery): Promise<LinkSuggestions> {
+  const params = new URLSearchParams({ margin_days: String(query.marginDays) })
+  if (query.page) {
+    params.append('types[]', query.page.type)
+    params.set('list', query.page.list)
+    params.set('cursor', query.page.cursor)
+  }
+  const raw: unknown = await fetchWrapper.get(`${visitUrl(patientId, visitId)}/link-suggestions?${params.toString()}`)
+
+  return LinkSuggestionsResponseSchema.parse(raw)
 }
 
 export async function attachRecords(patientId: number, visitId: number | string, links: Array<{ type: VisitLinkType, id: number }>): Promise<LinkBatch> {

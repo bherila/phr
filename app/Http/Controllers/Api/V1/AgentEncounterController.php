@@ -8,11 +8,14 @@ use App\Models\PhrMedication;
 use App\Models\PhrMedicationTransition;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Encounters\PhrEncounterLinkBatch;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
+use App\Services\PHR\Encounters\PhrLinkSuggestions;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\PHR\Validation\LinkSuggestionQuery;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -24,7 +27,8 @@ use Illuminate\Validation\ValidationException;
 /**
  * The records made during an encounter (#411): link and unlink one, and read the visit
  * with its linked records grouped by type, each group bounded and paged on its own, and
- * the medications its transitions name with those transitions (#414).
+ * the medications its transitions name with those transitions (#414). Suggest the records
+ * dated inside a stay and link the ones the person confirms, several at once (#450).
  */
 final class AgentEncounterController extends Controller
 {
@@ -44,6 +48,8 @@ final class AgentEncounterController extends Controller
      */
     private const array TRANSITION_GROUPS = ['home_medications', 'new_medications'];
 
+    private const string DOCUMENT_SCOPE_MESSAGE = 'Linking a document requires documents:read.';
+
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrEncounterLinks $links,
@@ -62,6 +68,95 @@ final class AgentEncounterController extends Controller
         $outcome = $this->links->link((int) $resolved->id, $visit, $type, (int) $validated['resource_id']);
 
         return $this->linkResponse((int) $resolved->id, $outcome, $visit, $type, (int) $validated['resource_id']);
+    }
+
+    /**
+     * Link several records at once (#450), each with its own outcome, as the person confirmed
+     * them from office_visits.suggest_links. Each type needs what link_record needs: a
+     * document without documents:read is refused on its own, and the others still link.
+     */
+    public function linkMany(Request $request, int $patient, int $visit, PhrEncounterLinkBatch $batch): JsonResponse
+    {
+        $validated = $request->validate([
+            'links' => ['required', 'array', 'min:1', 'max:'.PhrEncounterLinkBatch::MAX_LINKS],
+            'links.*' => ['required', 'array:resource_type,resource_id'],
+            'links.*.resource_type' => ['required', 'string', Rule::in(PhrEncounterLinks::types())],
+            'links.*.resource_id' => ['required', 'integer', 'min:1'],
+        ]);
+        $resolved = $this->accessService->writablePatient($patient, (int) $request->user('api')?->id);
+        $patientId = (int) $resolved->id;
+        $items = array_values(array_map(
+            static fn (array $link): array => ['type' => (string) $link['resource_type'], 'id' => (int) $link['resource_id']],
+            (array) $validated['links'],
+        ));
+
+        $allowed = [];
+        $refused = [];
+        foreach ($items as $index => $item) {
+            if ($this->typeInScope($request, $item['type'])) {
+                $allowed[$index] = $item;
+            } else {
+                $refused[$index] = [
+                    ...$item,
+                    'outcome' => PhrEncounterLinkBatch::REFUSED,
+                    'reason' => PhrEncounterLinkBatch::INSUFFICIENT_SCOPE,
+                    'message' => self::DOCUMENT_SCOPE_MESSAGE,
+                ];
+            }
+        }
+        // The visit is checked even when every item was refused, so a missing visit is a 404.
+        $linked = array_combine(array_keys($allowed), $batch->link($patientId, $visit, array_values($allowed)));
+        $results = [];
+        foreach (array_keys($items) as $index) {
+            $result = $linked[$index] ?? $refused[$index];
+            $results[] = [
+                'resource_type' => $result['type'],
+                'resource_id' => $result['id'],
+                ...array_diff_key($result, ['type' => true, 'id' => true]),
+            ];
+        }
+        $count = static fn (string $outcome): int => count(array_filter($results, static fn (array $result): bool => $result['outcome'] === $outcome));
+
+        return response()->json([
+            'resource_type' => 'office_visit_link_batch',
+            'patient_id' => $patientId,
+            'data' => [
+                'office_visit_id' => $visit,
+                'results' => $results,
+                'summary' => [
+                    PhrEncounterLinks::LINKED => $count(PhrEncounterLinks::LINKED),
+                    PhrEncounterLinks::UNCHANGED => $count(PhrEncounterLinks::UNCHANGED),
+                    PhrEncounterLinkBatch::REFUSED => $count(PhrEncounterLinkBatch::REFUSED),
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * The records dated inside a stay that no visit holds yet, and those another visit holds
+     * (#450), for the person to confirm. It links nothing. Documents need documents:read, as
+     * in get_stay: without it they are left out.
+     */
+    public function suggest(Request $request, int $patient, int $visit, PhrLinkSuggestions $suggestions): JsonResponse
+    {
+        $validated = LinkSuggestionQuery::validate($request);
+        $patientId = (int) $this->accessService->accessiblePatientWithCurrentGrant($patient, (int) $request->user('api')?->id)->id;
+        $resolved = PhrOfficeVisit::query()->where('patient_id', $patientId)->whereNull('retracted_at')->findOrFail($visit);
+        $types = array_values(array_filter(
+            $validated['types'] ?? PhrEncounterLinks::types(),
+            fn (string $type): bool => $this->typeInScope($request, $type),
+        ));
+        $suggested = $suggestions->suggest($patientId, $resolved, $types, $validated['margin_days'], $validated['limit'], $validated['list'], $validated['cursor']);
+
+        return response()->json([
+            'resource_type' => 'office_visit_link_suggestions',
+            'patient_id' => $patientId,
+            'data' => [
+                'office_visit_id' => (int) $resolved->id,
+                'window' => $suggested['window'],
+                'groups' => (object) $suggested['groups'],
+            ],
+        ]);
     }
 
     public function unlink(Request $request, int $patient, int $visit, string $type, int $record): JsonResponse
@@ -213,9 +308,12 @@ final class AgentEncounterController extends Controller
     /** A document link reads and names a document, so it needs documents:read as well. */
     private function assertTypeScope(Request $request, string $type): void
     {
-        if ($type === 'document') {
-            abort_unless((bool) $request->user('api')?->tokenCan(AgentApiScopes::DOCUMENTS_READ), 403, 'Linking a document requires documents:read.');
-        }
+        abort_unless($this->typeInScope($request, $type), 403, self::DOCUMENT_SCOPE_MESSAGE);
+    }
+
+    private function typeInScope(Request $request, string $type): bool
+    {
+        return $type !== 'document' || (bool) $request->user('api')?->tokenCan(AgentApiScopes::DOCUMENTS_READ);
     }
 
     private function linkResponse(int $patientId, string $outcome, int $visitId, string $type, int $recordId): JsonResponse

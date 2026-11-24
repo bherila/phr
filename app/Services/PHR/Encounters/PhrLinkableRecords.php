@@ -5,7 +5,9 @@ namespace App\Services\PHR\Encounters;
 use App\Models\PhrOfficeVisit;
 use App\Support\PHR\PhrReviewStatus;
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Carbon;
@@ -23,6 +25,8 @@ use JsonException;
  * `from`/`to` filter on it, so an undated record falls outside any range. The list runs
  * newest first by that date, then by when the record was written for an undated one, and
  * pages on a keyset cursor.
+ *
+ * @phpstan-type LinkableRecord array{id: int, type: string, name: string, date: string|null, detail: string|null, review_status: string, linked_visit: array{id: int, date: string|null, visit_type: string|null}|null}
  */
 final class PhrLinkableRecords
 {
@@ -48,29 +52,17 @@ final class PhrLinkableRecords
 
     /**
      * @param  array{q?: string|null, from?: string|null, to?: string|null}  $filters
-     * @return array{records: list<array{id: int, type: string, name: string, date: string|null, detail: string|null, review_status: string, linked_visit: array{id: int, date: string|null, visit_type: string|null}|null}>, pagination: array{limit: int, has_more: bool, next_cursor: string|null}}
+     * @return array{records: list<LinkableRecord>, pagination: array{limit: int, has_more: bool, next_cursor: string|null}}
      */
     public function page(int $patientId, int $visitId, string $type, array $filters, int $limit, ?string $cursor): array
     {
-        $definition = PhrEncounterLinks::definition($type);
         $fields = self::FIELDS[$type];
-        /** @var class-string<Model> $modelClass */
-        $modelClass = $definition['model'];
-        $model = new $modelClass;
-        $qualify = static fn (string $column): string => $model->qualifyColumn($column);
-        $natural = self::coalesce(array_map($qualify, $fields['dates']));
+        $qualify = self::qualifier($type);
+        $natural = self::naturalDateSql($type);
         $sort = self::coalesce(array_map($qualify, [...$fields['dates'], 'created_at']));
         $after = self::decodeCursor($cursor);
 
-        /** @var Builder<Model> $query */
-        $query = $modelClass::query()
-            ->select(array_map($qualify, array_values(array_unique(['id', 'review_status', ...$fields['names'], ...$fields['dates'], ...$fields['detail']]))))
-            ->selectRaw("{$sort} as link_sort_at")
-            ->where($qualify('patient_id'), $patientId)
-            ->whereNull($qualify('retracted_at'))
-            ->where($qualify('review_status'), '!=', PhrReviewStatus::REJECTED)
-            ->whereNotIn($qualify('id'), fn (QueryBuilder $links) => $links->select($definition['column'])->from($definition['table'])
-                ->where('patient_id', $patientId)->where('office_visit_id', $visitId));
+        $query = self::candidates($patientId, $visitId, $type)->selectRaw("{$sort} as link_sort_at");
 
         $text = trim((string) ($filters['q'] ?? ''));
         if ($text !== '') {
@@ -99,19 +91,8 @@ final class PhrLinkableRecords
         $rows = $rows->take($limit)->values();
         $last = $rows->last();
 
-        $elsewhere = $this->links->encounterIds($patientId, $type, $rows->modelKeys());
-        $visits = self::visitSummaries($patientId, array_values(array_unique($elsewhere)));
-
         return [
-            'records' => $rows->map(static fn (Model $record): array => [
-                'id' => (int) $record->getKey(),
-                'type' => $type,
-                'name' => self::name($record, $fields['names']),
-                'date' => self::naturalDate($record, $fields['dates']),
-                'detail' => self::detail($record, $fields['detail']),
-                'review_status' => (string) $record->getAttribute('review_status'),
-                'linked_visit' => isset($elsewhere[(int) $record->getKey()]) ? ($visits[$elsewhere[(int) $record->getKey()]] ?? null) : null,
-            ])->values()->all(),
+            'records' => $this->rows($patientId, $type, $rows),
             'pagination' => [
                 'limit' => $limit,
                 'has_more' => $hasMore,
@@ -120,6 +101,72 @@ final class PhrLinkableRecords
                     : null,
             ],
         ];
+    }
+
+    /**
+     * The patient's standing records of one type that this visit does not hold yet (not
+     * retracted, deleted or rejected), selecting the columns a listed row reads. The stay's
+     * suggestions (#450) start from it too, so both lists leave out the same records.
+     *
+     * @return Builder<Model>
+     */
+    public static function candidates(int $patientId, int $visitId, string $type): Builder
+    {
+        $definition = PhrEncounterLinks::definition($type);
+        $fields = self::FIELDS[$type];
+        /** @var class-string<Model> $modelClass */
+        $modelClass = $definition['model'];
+        $qualify = self::qualifier($type);
+
+        /** @var Builder<Model> $query */
+        $query = $modelClass::query()
+            ->select(array_map($qualify, array_values(array_unique(['id', 'review_status', ...$fields['names'], ...$fields['dates'], ...$fields['detail']]))))
+            ->where($qualify('patient_id'), $patientId)
+            ->whereNull($qualify('retracted_at'))
+            ->where($qualify('review_status'), '!=', PhrReviewStatus::REJECTED)
+            ->whereNotIn($qualify('id'), fn (QueryBuilder $links) => $links->select($definition['column'])->from($definition['table'])
+                ->where('patient_id', $patientId)->where('office_visit_id', $visitId));
+
+        return $query;
+    }
+
+    /** The SQL of a type's natural date: the first of its date columns that is set. */
+    public static function naturalDateSql(string $type): string
+    {
+        return self::coalesce(array_map(self::qualifier($type), self::FIELDS[$type]['dates']));
+    }
+
+    /** @return Closure(string): string a column of the type's table, qualified */
+    public static function qualifier(string $type): Closure
+    {
+        /** @var class-string<Model> $modelClass */
+        $modelClass = PhrEncounterLinks::definition($type)['model'];
+        $model = new $modelClass;
+
+        return static fn (string $column): string => $model->qualifyColumn($column);
+    }
+
+    /**
+     * Each record as a listed row, naming the other standing visit it is on, if any.
+     *
+     * @param  Collection<int, Model>  $rows
+     * @return list<LinkableRecord>
+     */
+    public function rows(int $patientId, string $type, Collection $rows): array
+    {
+        $fields = self::FIELDS[$type];
+        $elsewhere = $this->links->encounterIds($patientId, $type, $rows->modelKeys());
+        $visits = self::visitSummaries($patientId, array_values(array_unique($elsewhere)));
+
+        return $rows->map(static fn (Model $record): array => [
+            'id' => (int) $record->getKey(),
+            'type' => $type,
+            'name' => self::name($record, $fields['names']),
+            'date' => self::naturalDate($record, $fields['dates']),
+            'detail' => self::detail($record, $fields['detail']),
+            'review_status' => (string) $record->getAttribute('review_status'),
+            'linked_visit' => isset($elsewhere[(int) $record->getKey()]) ? ($visits[$elsewhere[(int) $record->getKey()]] ?? null) : null,
+        ])->values()->all();
     }
 
     /**
@@ -191,13 +238,13 @@ final class PhrLinkableRecords
         return $parts === [] ? null : implode(' ', $parts);
     }
 
-    private static function encodeCursor(string $at, int $id): string
+    public static function encodeCursor(string $at, int $id): string
     {
         return rtrim(strtr(base64_encode(json_encode(['at' => $at, 'id' => $id], JSON_THROW_ON_ERROR)), '+/', '-_'), '=');
     }
 
     /** @return array{at: string, id: int}|null */
-    private static function decodeCursor(?string $encoded): ?array
+    public static function decodeCursor(?string $encoded): ?array
     {
         if ($encoded === null || $encoded === '') {
             return null;

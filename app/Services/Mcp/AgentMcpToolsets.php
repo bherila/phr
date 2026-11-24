@@ -56,7 +56,7 @@ final class AgentMcpToolsets
         'patients' => 'Create or update patient profiles.',
         'documents' => 'List, read and edit documents and notes, store markdown notes, upload files (signed or small uploads) and create download access.',
         'medications' => 'Medications, prescription fills and medication transitions, with NDC lookup and search and FDA drug labels.',
-        'encounters' => 'Write office visits and hospital stays, read a stay, and link records to a visit.',
+        'encounters' => 'Write office visits and hospital stays, read a stay, suggest the records dated inside it, and link records to a visit.',
         'episodes' => 'Write episodes of care and link encounters to them.',
         'eobs' => 'Explanation-of-benefits claims and their lines: list, import, upsert, update and reconcile.',
         'imports' => 'Create, inspect, retry and review C-CDA, FHIR and EHI export imports.',

@@ -249,6 +249,11 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api');
         Route::operation('office_visits.get_stay', [AgentEncounterController::class, 'stay'])
             ->whereNumber(['patient', 'visit'])->middleware('throttle:agent-api');
+        // Suggest the records dated inside a stay, and link those the person confirms (#450).
+        Route::operation('office_visits.suggest_links', [AgentEncounterController::class, 'suggest'])
+            ->whereNumber(['patient', 'visit'])->middleware('throttle:agent-api');
+        Route::operation('office_visits.link_records', [AgentEncounterController::class, 'linkMany'])
+            ->whereNumber(['patient', 'visit'])->middleware('throttle:agent-api');
 
         // The encounters grouped under an episode of care (#415).
         Route::operation('episodes.link_encounter', [AgentEpisodeController::class, 'link'])
@@ -512,8 +517,9 @@ Route::middleware(['web', 'auth'])
         Route::delete('/patients/{patient}/office-visits/{visit}/eobs/{eob}', [PHRClinicalEobController::class, 'unlinkOfficeVisit'])->whereNumber(['patient', 'visit', 'eob'])->name('patients.office-visits.eobs.destroy');
         Route::post('/patients/{patient}/office-visits/{visit}/imaging-studies/{study}', [PHROfficeVisitController::class, 'linkImagingStudy'])->whereNumber(['patient', 'visit', 'study'])->name('patients.office-visits.imaging-studies.store');
         Route::delete('/patients/{patient}/office-visits/{visit}/imaging-studies/{study}', [PHROfficeVisitController::class, 'unlinkImagingStudy'])->whereNumber(['patient', 'visit', 'study'])->name('patients.office-visits.imaging-studies.destroy');
-        // Attach existing records to a visit or stay, and remove them (#449).
+        // Attach existing records to a visit or stay, and remove them (#449), and suggest those dated inside it (#450).
         Route::get('/patients/{patient}/office-visits/{visit}/linkable-records', [PHROfficeVisitLinkController::class, 'linkable'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.linkable-records.index');
+        Route::get('/patients/{patient}/office-visits/{visit}/link-suggestions', [PHROfficeVisitLinkController::class, 'suggestions'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.link-suggestions.index');
         Route::post('/patients/{patient}/office-visits/{visit}/links', [PHROfficeVisitLinkController::class, 'link'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.links.store');
         Route::delete('/patients/{patient}/office-visits/{visit}/links/{type}/{record}', [PHROfficeVisitLinkController::class, 'unlink'])->whereNumber(['patient', 'visit', 'record'])->whereIn('type', PhrEncounterLinks::types())->name('patients.office-visits.links.destroy');
         Route::patch('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'update'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.update');

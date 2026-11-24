@@ -79,6 +79,27 @@ Read the patient's existing records before every write.
 - Every effective change returns the record to human review. Keep records
   `pending_review` unless the user explicitly approves the clinical facts.
 
+## Records from a visit or stay
+
+A lab result, vital, medication, procedure or document belongs to at most one
+visit. To attach the records dated during a stay:
+
+1. Read the stay with `office_visits.get_stay`.
+2. Call `office_visits.suggest_links` (optionally with `margin_days`, 0 to 14, to
+   widen the stay's dates). It links nothing. It lists, by type, the records dated
+   inside the stay that are on no visit yet (`suggested`), and apart from them
+   those another visit holds (`on_other_visits`), which must be unlinked there
+   first. Only a stay's own inpatient and discharge medications are suggested.
+3. Show the person the candidates and ask which belong to this stay.
+4. Call `office_visits.link_records` with only the records they confirmed, each as
+   `resource_type` (the candidate's `type`) and `resource_id` (its `id`). Each
+   record answers `linked`, `unchanged` (already on this stay) or `refused` with
+   its reason; tell the person about any refusal.
+
+Never link a suggestion without the person's confirmation. A link changes no
+record's version or review status. `office_visits.link_record` links a single
+record you found another way.
+
 ## Getting a file into PHR
 
 For photos and PDFs prefer a signed upload: `documents.upload_access_create`

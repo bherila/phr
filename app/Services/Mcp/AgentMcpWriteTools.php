@@ -411,6 +411,26 @@ final readonly class AgentMcpWriteTools
         return $this->api->officeVisitLinkRecord($patient_id, $visit_id, $resource_type, $resource_id)->toArray();
     }
 
+    /**
+     * @param  list<array{resource_type: string, resource_id: int}>  $links
+     * @return array<string, mixed>
+     */
+    public function officeVisitsLinkRecords(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $visit_id,
+        #[Schema(type: 'array', minItems: 1, maxItems: 100, items: [
+            'type' => 'object',
+            'required' => ['resource_type', 'resource_id'],
+            'properties' => [
+                'resource_type' => ['type' => 'string', 'enum' => ['document', 'lab-result', 'vital', 'medication', 'procedure']],
+                'resource_id' => ['type' => 'integer', 'minimum' => 1],
+            ],
+            'additionalProperties' => false,
+        ], description: 'The records the person confirmed.')] array $links,
+    ): array {
+        return $this->api->officeVisitLinkRecords($patient_id, $visit_id, $links)->toArray();
+    }
+
     /** @return array<string, mixed> */
     public function officeVisitsUnlinkRecord(
         #[Schema(minimum: 1)] int $patient_id,

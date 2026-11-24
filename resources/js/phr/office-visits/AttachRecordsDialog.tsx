@@ -50,7 +50,8 @@ interface Selected {
   name: string
 }
 
-function key(type: VisitLinkType, id: number): string {
+/** A record's key across types: its type and id. */
+export function recordKey(type: VisitLinkType, id: number): string {
   return `${type}:${id}`
 }
 
@@ -63,7 +64,7 @@ export function visitDateRange(visit: { visit_date: string | null, visit_started
   return { from, to: to !== '' && to < from ? from : to }
 }
 
-function linkedVisitLabel(visit: NonNullable<LinkableRecord['linked_visit']>): string {
+export function linkedVisitLabel(visit: NonNullable<LinkableRecord['linked_visit']>): string {
   return visit.date ? `On visit of ${formatDate(visit.date)}` : `On visit #${visit.id}`
 }
 
@@ -89,12 +90,13 @@ export function attachSummary(batch: LinkBatch, names: ReadonlyMap<string, strin
   if (batch.summary.refused > 0) parts.push(`${batch.summary.refused} not attached.`)
   const refusals = batch.results
     .filter((result) => result.outcome === 'refused')
-    .map((result) => refusalText(result, names.get(key(result.type, result.id)) ?? `Record ${result.id}`))
+    .map((result) => refusalText(result, names.get(recordKey(result.type, result.id)) ?? `Record ${result.id}`))
 
   return { headline: parts.join(' '), refusals }
 }
 
-function recordDetail(record: LinkableRecord): string {
+/** A listed record's date and detail, in a line. */
+export function recordDetail(record: LinkableRecord): string {
   const detail = record.type === 'document' ? (record.detail ? documentTypeLabel(record.detail) : null) : record.detail
   const date = record.date ? (record.date.length > 10 ? formatDateTime(record.date) : formatDate(record.date)) : 'No date'
 
@@ -149,8 +151,8 @@ export default function AttachRecordsDialog({ patientId, visitId, defaultRange, 
   function toggle(record: LinkableRecord, checked: boolean): void {
     setSelected((current) => {
       const next = new Map(current)
-      if (checked) next.set(key(record.type, record.id), { type: record.type, id: record.id, name: record.name })
-      else next.delete(key(record.type, record.id))
+      if (checked) next.set(recordKey(record.type, record.id), { type: record.type, id: record.id, name: record.name })
+      else next.delete(recordKey(record.type, record.id))
       return next
     })
   }
@@ -167,7 +169,7 @@ export default function AttachRecordsDialog({ patientId, visitId, defaultRange, 
     setError(null)
     try {
       const batch = await attachRecords(patientId, visitId, links.map(({ type: linkType, id }) => ({ type: linkType, id })))
-      const names = new Map(links.map((link) => [key(link.type, link.id), link.name]))
+      const names = new Map(links.map((link) => [recordKey(link.type, link.id), link.name]))
       await onAttached(batch, attachSummary(batch, names))
     } catch (caught) {
       setError(errorMessage(caught))
@@ -241,10 +243,10 @@ export default function AttachRecordsDialog({ patientId, visitId, defaultRange, 
             <ul className="divide-y divide-border rounded-md border border-border" aria-label={`${VISIT_LINK_TYPE_LABELS[type]} to attach`}>
               {records.map((record) => {
                 const elsewhere = record.linked_visit
-                const checked = selected.has(key(record.type, record.id))
+                const checked = selected.has(recordKey(record.type, record.id))
 
                 return (
-                  <li key={key(record.type, record.id)} className="flex items-start gap-3 px-3 py-2">
+                  <li key={recordKey(record.type, record.id)} className="flex items-start gap-3 px-3 py-2">
                     <input
                       type="checkbox"
                       className="mt-0.5 size-4 shrink-0 accent-primary"
