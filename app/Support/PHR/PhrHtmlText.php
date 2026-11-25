@@ -6,6 +6,7 @@ use DOMDocument;
 use DOMElement;
 use DOMNode;
 use DOMText;
+use LibXMLError;
 
 /**
  * The visible text of an HTML document, for a reader that must never be handed
@@ -33,6 +34,14 @@ final class PhrHtmlText
         'tfoot', 'thead', 'tr', 'ul',
     ];
 
+    /**
+     * libxml error codes that mean the parser gave up on part of the document while
+     * still returning a tree: XML_ERR_INTERNAL_ERROR (1) and XML_ERR_NO_MEMORY (2), how
+     * libxml before 2.11 reports its depth and text-size limits, and XML_ERR_RESOURCE_LIMIT
+     * (114), how later versions report them. Any of them, at any severity, truncates.
+     */
+    private const array TRUNCATING_CODES = [1, 2, 114];
+
     /** Returns null when parser limits would make the visible text incomplete. */
     public static function toText(string $html): ?string
     {
@@ -51,10 +60,9 @@ final class PhrHtmlText
                 '<?xml encoding="UTF-8">'.$html,
                 LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_COMPACT | LIBXML_HTML_NODEFDTD,
             );
-            // libxml may return true with a partial tree after hitting its text/depth
-            // limits. Codes 1/2 are internal/resource errors even at nonfatal severity.
+            // libxml may return true with a partial tree after hitting its text/depth limits.
             foreach (libxml_get_errors() as $error) {
-                if ($error->level === LIBXML_ERR_FATAL || in_array($error->code, [1, 2], true)) {
+                if (self::truncates($error)) {
                     return null;
                 }
             }
@@ -174,5 +182,11 @@ final class PhrHtmlText
         }
 
         return trim((string) preg_replace("/\n{3,}/", "\n\n", implode("\n", $lines)), "\n");
+    }
+
+    /** Whether this parser error means the tree is missing part of the document. */
+    public static function truncates(LibXMLError $error): bool
+    {
+        return $error->level === LIBXML_ERR_FATAL || in_array($error->code, self::TRUNCATING_CODES, true);
     }
 }
