@@ -2,7 +2,11 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Models\PhrHealthLog;
+use App\Models\PhrPatient;
 use App\Models\User;
+use App\Services\PHR\HealthLog\PhrHealthLogService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Tests\TestCase;
 
 class PhrHealthLogTest extends TestCase
@@ -136,6 +140,25 @@ class PhrHealthLogTest extends TestCase
         $this->assertSoftDeleted('phr_health_logs', ['id' => $logId, 'name_reserved' => null]);
         $this->assertSoftDeleted('phr_health_log_entries', ['id' => $replacementEntryId]);
         $this->actingAs($owner)->getJson("/api/phr/patients/{$patientId}/health-logs/{$logId}")->assertNotFound();
+    }
+
+    public function test_an_entry_cannot_be_appended_through_a_stale_log_after_deletion(): void
+    {
+        $owner = $this->createUser();
+        $patientId = $this->createPatient($owner);
+        $logId = $this->createHealthLog($owner, $patientId, 'Synthetic stale log', 'custom');
+        $staleLog = PhrHealthLog::query()->findOrFail($logId);
+        $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patientId}/health-logs/{$logId}")->assertNoContent();
+
+        try {
+            app(PhrHealthLogService::class)->createEntry(PhrPatient::query()->findOrFail($patientId), $staleLog, $owner->id, [
+                'occurred_at' => '2026-07-13 12:00:00', 'title' => 'Late synthetic entry',
+            ]);
+            $this->fail('A stale log must not accept an entry after deletion.');
+        } catch (ModelNotFoundException $exception) {
+            $this->assertSame(PhrHealthLog::class, $exception->getModel());
+        }
+        $this->assertDatabaseMissing('phr_health_log_entries', ['health_log_id' => $logId, 'deleted_at' => null]);
     }
 
     public function test_nested_ids_are_scoped_to_the_patient_and_health_log(): void

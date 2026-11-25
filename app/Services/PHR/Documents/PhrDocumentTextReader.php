@@ -71,8 +71,10 @@ final class PhrDocumentTextReader
                 return null;
             }
 
-            return [
-                'text' => PhrHtmlText::toText($bytes),
+            $text = PhrHtmlText::toText($bytes);
+
+            return $text === null ? null : [
+                'text' => $text,
                 'source' => self::SOURCE_FILE,
                 'format' => 'text/plain',
                 'markup_stripped' => true,
@@ -87,11 +89,13 @@ final class PhrDocumentTextReader
         return strtolower(trim(explode(';', (string) $mimeType, 2)[0]));
     }
 
-    /** @return array{text: string, source: string, format: string, markup_stripped: bool} */
-    private static function extracted(string $text, bool $strip): array
+    /** @return array{text: string, source: string, format: string, markup_stripped: bool}|null */
+    private static function extracted(string $text, bool $strip): ?array
     {
-        return [
-            'text' => $strip ? PhrHtmlText::toText($text) : $text,
+        $text = $strip ? PhrHtmlText::toText($text) : $text;
+
+        return $text === null ? null : [
+            'text' => $text,
             'source' => self::SOURCE_EXTRACTED_TEXT,
             'format' => 'text/plain',
             'markup_stripped' => $strip,

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import OfficeVisitLinkedRecords from './OfficeVisitLinkedRecords'
 
@@ -163,6 +163,32 @@ describe('Suggested from these dates', () => {
     expect(within(region).getByRole('checkbox', { name: 'Select Creatinine' })).toBeChecked()
     expect(within(region).queryByRole('button', { name: /Show more/ })).not.toBeInTheDocument()
     expect(within(region).getByText('2 selected.')).toBeInTheDocument()
+  })
+
+  it('drops an old page and its selection when the margin changes', async () => {
+    let resolvePage!: (value: unknown) => void
+    mockGet.mockResolvedValueOnce(suggestions({
+      'lab-result': { suggested: list([row(5, 'Creatinine')], 2, 'old-page'), on_other_visits: list([]) },
+    }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve }))
+      .mockResolvedValue(suggestions({
+        'lab-result': { suggested: list([row(6, 'Potassium')]), on_other_visits: list([]) },
+      }, { ...CLOSED, margin_days: 1 }))
+    render(<OfficeVisitLinkedRecords records={undefined} editing={editing()} />)
+    const region = await screen.findByRole('region', { name: 'Suggested from these dates' })
+    fireEvent.click(within(region).getByRole('button', { name: 'Show more (1 of 2)' }))
+    fireEvent.change(within(region).getByLabelText('Include'), { target: { value: '1' } })
+    expect(await within(region).findByRole('checkbox', { name: 'Select Potassium' })).toBeChecked()
+
+    await act(async () => resolvePage(suggestions({
+      'lab-result': { suggested: list([row(9, 'Stale lactate')], 2) },
+    })))
+
+    expect(within(region).queryByRole('checkbox', { name: 'Select Stale lactate' })).not.toBeInTheDocument()
+    expect(within(region).getByText('1 selected.')).toBeInTheDocument()
+    mockPost.mockResolvedValue({ office_visit_id: 18, results: [], summary: { linked: 0, unchanged: 0, refused: 0 } })
+    fireEvent.click(within(region).getByRole('button', { name: 'Attach selected' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`${BASE}/links`, { links: [{ type: 'lab-result', id: 6 }] }))
   })
 
   it('sends a selection larger than one request takes in several', async () => {

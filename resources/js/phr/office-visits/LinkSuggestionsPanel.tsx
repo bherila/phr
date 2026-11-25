@@ -105,6 +105,7 @@ export default function LinkSuggestionsPanel({ patientId, visitId, refreshKey, o
   async function load(margin: number): Promise<void> {
     const ticket = ++request.current
     setLoading(true)
+    setPaging(null)
     setError(null)
     try {
       const response = await fetchLinkSuggestions(patientId, visitId, { marginDays: margin })
@@ -136,10 +137,12 @@ export default function LinkSuggestionsPanel({ patientId, visitId, refreshKey, o
   }, [patientId, visitId, marginDays, refreshKey])
 
   async function showMore(type: VisitLinkType, list: SuggestionListName, cursor: string): Promise<void> {
+    const ticket = request.current
     setPaging(`${type}:${list}`)
     setError(null)
     try {
       const response = await fetchLinkSuggestions(patientId, visitId, { marginDays, page: { type, list, cursor } })
+      if (ticket !== request.current) return
       const page = response.groups[type]?.[list] ?? EMPTY_LIST
       setLists((current) => {
         const group = current[type] ?? { suggested: EMPTY_LIST, on_other_visits: EMPTY_LIST }
@@ -153,9 +156,9 @@ export default function LinkSuggestionsPanel({ patientId, visitId, refreshKey, o
         })
       }
     } catch (caught) {
-      setError(errorMessage(caught))
+      if (ticket === request.current) setError(errorMessage(caught))
     } finally {
-      setPaging(null)
+      if (ticket === request.current) setPaging(null)
     }
   }
 
@@ -289,7 +292,7 @@ export default function LinkSuggestionsPanel({ patientId, visitId, refreshKey, o
                   size="sm"
                   variant="ghost"
                   className="mt-1"
-                  disabled={paging !== null || saving}
+                  disabled={paging !== null || saving || loading}
                   onClick={() => void showMore(group.type, list, cursor)}
                 >
                   {paging === `${group.type}:${list}`
