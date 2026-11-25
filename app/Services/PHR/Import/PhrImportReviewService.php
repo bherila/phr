@@ -7,6 +7,7 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\PHR\PhrReviewStatus;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
@@ -21,7 +22,7 @@ final readonly class PhrImportReviewService
 
     /**
      * `$byAgent` says an agent accepted (imports.review), not a person in the browser:
-     * a document the proposal changes then waits for that person's review.
+     * documents and clinical records it changes then wait for that person's review.
      *
      * @param  array<string, mixed>|null  $payload
      */
@@ -86,6 +87,7 @@ final readonly class PhrImportReviewService
         bool $byAgent,
     ): PhrImportResult {
         $context = $job->getContextArray();
+        $reviewOptions = $byAgent ? ['review_status' => PhrReviewStatus::PENDING] : [];
         if ($job->job_type === 'phr_document') {
             $sourceDocumentId = (int) ($context['document_id'] ?? 0);
             if ($sourceDocumentId > 0) {
@@ -102,6 +104,7 @@ final readonly class PhrImportReviewService
                 'import_source' => 'genai',
                 'source' => 'genai_import',
                 'genai_job_id' => $job->id,
+                ...$reviewOptions,
             ]));
 
             return $import;
@@ -112,6 +115,7 @@ final readonly class PhrImportReviewService
             'source' => 'genai_import',
             'genai_job_id' => $job->id,
             'source_document_id' => (int) ($context['document_id'] ?? 0) ?: null,
+            ...$reviewOptions,
         ]);
     }
 

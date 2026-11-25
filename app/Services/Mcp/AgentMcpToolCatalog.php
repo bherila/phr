@@ -294,7 +294,7 @@ final class AgentMcpToolCatalog
             $this->write(
                 'imports.review',
                 'Review import proposal',
-                'Accept or reject one proposed record through the versioned REST workflow.',
+                'Accept or reject one proposed record through the versioned REST workflow. Accepted new or changed records still need review by the owner in PHR before clinical export.',
                 [$writes, 'importsReview'],
                 new WriteSafety(note: 'Decides one proposal; a decided proposal refuses another decision.'),
                 effect: Effect::Destructive,

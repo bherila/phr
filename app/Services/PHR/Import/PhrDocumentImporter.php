@@ -155,23 +155,29 @@ class PhrDocumentImporter
      */
     public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload, bool $reopenReviewOnChange = false): PhrDocument
     {
-        $payload = $this->documentPayload($payload);
+        return DB::transaction(function () use ($document, $job, $payload, $reopenReviewOnChange): PhrDocument {
+            // Re-read under the same lock as browser approval. A stale pending model must
+            // never preserve an approval committed before these unseen content changes.
+            $document = PhrDocument::query()->where('patient_id', $document->patient_id)
+                ->lockForUpdate()->findOrFail($document->id);
+            $payload = $this->documentPayload($payload);
 
-        $document->fill([
-            'genai_job_id' => $job->id,
-            'title' => ValueCoercion::string($payload['title'] ?? null) ?? $document->title,
-            'document_type' => ValueCoercion::normalizeDocumentType($payload['document_type'] ?? $document->document_type),
-            'observed_at' => ValueCoercion::dateTime($payload['observed_at'] ?? null) ?? $document->observed_at,
-            'extracted_text' => ValueCoercion::string($payload['extracted_text'] ?? $payload['text'] ?? null) ?? $document->extracted_text,
-            'summary' => ValueCoercion::string($payload['summary'] ?? null) ?? $document->summary,
-            'tags' => ValueCoercion::tags($payload['tags'] ?? null) ?? $document->tags,
-        ]);
-        if ($reopenReviewOnChange && $document->isDirty(['title', 'document_type', 'observed_at', 'extracted_text', 'summary', 'tags'])) {
-            $document->setAttribute('review_status', PhrReviewStatus::PENDING);
-        }
-        $document->save();
+            $document->fill([
+                'genai_job_id' => $job->id,
+                'title' => ValueCoercion::string($payload['title'] ?? null) ?? $document->title,
+                'document_type' => ValueCoercion::normalizeDocumentType($payload['document_type'] ?? $document->document_type),
+                'observed_at' => ValueCoercion::dateTime($payload['observed_at'] ?? null) ?? $document->observed_at,
+                'extracted_text' => ValueCoercion::string($payload['extracted_text'] ?? $payload['text'] ?? null) ?? $document->extracted_text,
+                'summary' => ValueCoercion::string($payload['summary'] ?? null) ?? $document->summary,
+                'tags' => ValueCoercion::tags($payload['tags'] ?? null) ?? $document->tags,
+            ]);
+            if ($reopenReviewOnChange && $document->isDirty(['title', 'document_type', 'observed_at', 'extracted_text', 'summary', 'tags'])) {
+                $document->setAttribute('review_status', PhrReviewStatus::PENDING);
+            }
+            $document->save();
 
-        return $document->refresh();
+            return $document->refresh();
+        });
     }
 
     /**

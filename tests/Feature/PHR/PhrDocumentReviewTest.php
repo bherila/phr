@@ -4,6 +4,7 @@ namespace Tests\Feature\PHR;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Models\GenAiImportResult;
+use App\Models\PhrCondition;
 use App\Models\PhrDocument;
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
@@ -286,6 +287,67 @@ final class PhrDocumentReviewTest extends TestCase
         $this->postJson("/api/v1/patients/{$this->patient->id}/imports/{$job->id}/results/{$result->id}/review", ['action' => 'accept'])->assertOk();
         $this->assertSame((int) $job->id, $unchanged->refresh()->genai_job_id);
         $this->assertSame(PhrReviewStatus::CONFIRMED, $unchanged->review_status);
+    }
+
+    public function test_agent_accepted_clinical_proposals_wait_for_owner_review_and_unchanged_accepts_keep_it(): void
+    {
+        foreach (['phr_problem_list', 'phr_document'] as $jobType) {
+            $name = 'Synthetic agent condition '.$jobType;
+            $record = ['record_key' => 'condition-'.$jobType, 'name' => $name];
+            $payload = $jobType === 'phr_document' ? ['records' => ['conditions' => [$record]]] : $record;
+            $document = $this->document('Synthetic source '.$jobType, []);
+            [$job, $proposal] = $this->aiProposal($document, $payload);
+            $job->update(['job_type' => $jobType]);
+            $this->agent([AgentApiScopes::IMPORTS_WRITE]);
+            $url = "/api/v1/patients/{$this->patient->id}/imports/{$job->id}/results/{$proposal->id}/review";
+            $this->postJson($url, ['action' => 'accept'])->assertOk();
+            $condition = PhrCondition::query()->where('patient_id', $this->patient->id)->where('name', $name)->sole();
+            $this->assertSame(PhrReviewStatus::PENDING, $condition->review_status);
+            $this->assertStringNotContainsString($name, app(PhrCcdaExporter::class)->documentXml(app(PhrExportDataService::class)->load($this->patient)));
+
+            // Owner approval makes it exportable. Reaccepting the same facts keeps approval.
+            $condition->update(['review_status' => PhrReviewStatus::CONFIRMED]);
+            $this->assertStringContainsString($name, app(PhrCcdaExporter::class)->documentXml(app(PhrExportDataService::class)->load($this->patient)));
+            $proposal->refresh()->update(['status' => 'pending_review']);
+            $this->postJson($url, ['action' => 'accept'])->assertOk();
+            $this->assertSame(PhrReviewStatus::CONFIRMED, $condition->refresh()->review_status);
+
+            // Effective changes reopen review on that same row.
+            $record['name'] = $name.' revised';
+            $payload = $jobType === 'phr_document' ? ['records' => ['conditions' => [$record]]] : $record;
+            $proposal->refresh()->update(['status' => 'pending_review']);
+            $this->postJson($url, ['action' => 'accept', 'payload' => $payload])->assertOk();
+            $this->assertSame($record['name'], $condition->refresh()->name);
+            $this->assertSame(PhrReviewStatus::PENDING, $condition->review_status);
+        }
+    }
+
+    public function test_browser_accepted_clinical_proposals_are_confirmed(): void
+    {
+        foreach (['phr_problem_list', 'phr_document'] as $jobType) {
+            $name = 'Synthetic browser condition '.$jobType;
+            $record = ['record_key' => 'condition-'.$jobType, 'name' => $name];
+            $payload = $jobType === 'phr_document' ? ['records' => ['conditions' => [$record]]] : $record;
+            [$job, $proposal] = $this->aiProposal($this->document('Synthetic source '.$jobType, []), $payload);
+            $job->update(['job_type' => $jobType]);
+            $this->actingAs($this->owner)->postJson("/api/phr/patients/{$this->patient->id}/ai-imports/{$job->id}/results/{$proposal->id}/accept")->assertOk();
+            $condition = PhrCondition::query()->where('patient_id', $this->patient->id)->where('name', $name)->sole();
+            $this->assertSame(PhrReviewStatus::CONFIRMED, $condition->review_status);
+            $this->assertStringContainsString($name, app(PhrCcdaExporter::class)->documentXml(app(PhrExportDataService::class)->load($this->patient)));
+        }
+    }
+
+    public function test_an_agent_update_reloads_a_stale_pending_document_after_a_person_confirms_it(): void
+    {
+        $stale = $this->document('Synthetic note', ['review_status' => PhrReviewStatus::PENDING]);
+        [$job] = $this->aiProposal($stale, ['summary' => 'New AI content']);
+        // The browser confirms after the agent loaded its pending model.
+        PhrDocument::query()->whereKey($stale->id)->update(['review_status' => PhrReviewStatus::CONFIRMED]);
+
+        app(PhrStructuredDataImporter::class)->updateDocumentFromGenAiResult($stale, $job, ['summary' => 'New AI content'], reopenReviewOnChange: true);
+
+        $this->assertSame(PhrReviewStatus::PENDING, $stale->refresh()->review_status);
+        $this->assertSame('New AI content', $stale->summary);
     }
 
     public function test_a_person_accepting_an_ai_proposal_in_the_browser_keeps_the_documents_review(): void

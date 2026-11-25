@@ -66,7 +66,7 @@ class HealthLogController extends Controller
     public function destroy(Request $request, int $patient, int $healthLog): Response
     {
         $resolvedPatient = $this->writablePatient($request, $patient);
-        $this->resolveHealthLog($resolvedPatient, $healthLog)->delete();
+        $this->healthLogService->deleteLog($this->resolveHealthLog($resolvedPatient, $healthLog));
 
         return response()->noContent();
     }

@@ -33,7 +33,8 @@ final class PhrHtmlText
         'tfoot', 'thead', 'tr', 'ul',
     ];
 
-    public static function toText(string $html): string
+    /** Returns null when parser limits would make the visible text incomplete. */
+    public static function toText(string $html): ?string
     {
         if (trim($html) === '') {
             return '';
@@ -44,17 +45,25 @@ final class PhrHtmlText
         }
         $document = new DOMDocument;
         $previous = libxml_use_internal_errors(true);
+        libxml_clear_errors();
         try {
             $loaded = $document->loadHTML(
                 '<?xml encoding="UTF-8">'.$html,
                 LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_COMPACT | LIBXML_HTML_NODEFDTD,
             );
+            // libxml may return true with a partial tree after hitting its text/depth
+            // limits. Codes 1/2 are internal/resource errors even at nonfatal severity.
+            foreach (libxml_get_errors() as $error) {
+                if ($error->level === LIBXML_ERR_FATAL || in_array($error->code, [1, 2], true)) {
+                    return null;
+                }
+            }
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
         }
         if ($loaded === false) {
-            return '';
+            return null;
         }
 
         $out = '';

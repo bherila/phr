@@ -6,6 +6,7 @@ use App\Models\PhrHealthLog;
 use App\Models\PhrHealthLogEntry;
 use App\Models\PhrPatient;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class PhrHealthLogService
@@ -69,13 +70,29 @@ class PhrHealthLogService
     ): PhrHealthLogEntry {
         $this->ensureLogBelongsToPatient($healthLog, $patient);
 
-        return $this->dao->createEntry([
-            ...$attributes,
-            'health_log_id' => $healthLog->id,
-            'patient_id' => $patient->id,
-            'user_id' => $patient->owner_user_id,
-            'recorded_by_user_id' => $actorId,
-        ]);
+        return DB::transaction(function () use ($patient, $healthLog, $actorId, $attributes): PhrHealthLogEntry {
+            // Serialize with both the browser and agent delete, and reject a stale model
+            // whose parent was soft-deleted after the controller read it.
+            $lockedLog = PhrHealthLog::query()->where('patient_id', $patient->id)
+                ->lockForUpdate()->findOrFail($healthLog->id);
+
+            return $this->dao->createEntry([
+                ...$attributes,
+                'health_log_id' => $lockedLog->id,
+                'patient_id' => $patient->id,
+                'user_id' => $patient->owner_user_id,
+                'recorded_by_user_id' => $actorId,
+            ]);
+        });
+    }
+
+    public function deleteLog(PhrHealthLog $healthLog): void
+    {
+        // Hold the same parent lock as createEntry until the model's cascade finishes.
+        DB::transaction(function () use ($healthLog): void {
+            PhrHealthLog::query()->where('patient_id', $healthLog->patient_id)
+                ->lockForUpdate()->findOrFail($healthLog->id)->delete();
+        });
     }
 
     /** @param array<string, mixed> $attributes */

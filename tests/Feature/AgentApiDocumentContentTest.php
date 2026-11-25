@@ -170,6 +170,24 @@ final class AgentApiDocumentContentTest extends TestCase
         $this->assertSame('Extracted note', $data['content']);
     }
 
+    public function test_html_parser_limits_refuse_inline_content_instead_of_silently_losing_text(): void
+    {
+        foreach ([
+            '<p>'.str_repeat('x', 11 * 1024 * 1024).'end-of-note</p>',
+            str_repeat('<div>', 300).'end-of-note'.str_repeat('</div>', 300),
+        ] as $html) {
+            $document = $this->stored('parser-limit.html', 'text/html', $html);
+            $this->getJson($this->contentUrl($document))->assertUnprocessable()
+                ->assertJsonPath('error', 'no_inline_text')
+                ->assertJsonPath('download_operation', 'documents.download_access.create');
+
+            // An extraction containing markup must follow the same refusal path.
+            $document->update(['extracted_text' => $html]);
+            $this->getJson($this->contentUrl($document))->assertUnprocessable()
+                ->assertJsonPath('error', 'no_inline_text');
+        }
+    }
+
     public function test_another_type_returns_its_extracted_text_or_refuses_with_a_pointer_to_download_access(): void
     {
         $pdf = $this->stored('consent.pdf', 'application/pdf', "%PDF-1.4\n%%EOF\n");
