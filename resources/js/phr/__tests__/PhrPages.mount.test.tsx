@@ -157,10 +157,10 @@ beforeEach(() => {
 })
 
 describe('PHR page mounts', () => {
-  it('mounts patients page and shows Add Patient button', async () => {
+  it('mounts patients page and shows the Add patient button', async () => {
     render(<PatientsPage />)
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/api/phr/patients'))
-    expect(screen.getByRole('link', { name: /add patient/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add patient' })).toBeInTheDocument()
   })
 
   it('mounts patients page and shows patient card', async () => {
