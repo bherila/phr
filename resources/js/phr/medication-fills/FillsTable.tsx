@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 
 import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, RECORD_ONLY_WIDE_BLOCK, RECORD_ONLY_WIDE_INLINE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
-import { Button } from '@/components/ui/button'
 import type { FillColumn } from '@/lib/displayPreferences'
 import { cn } from '@/lib/utils'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
@@ -15,10 +14,8 @@ import { fillDrugName, formatCents, formatFillDate, formatQuantity, type Medicat
 export interface FillActions {
   isMutating: (key: string) => boolean
   onReview: (fillId: number, decision: PhrReviewDecision) => void
-  deletingId: number | null
+  /** Asks before deleting; the page shows the confirmation. */
   onStartDelete: (fillId: number) => void
-  onCancelDelete: () => void
-  onConfirmDelete: (fillId: number) => void
 }
 
 interface FillsTableProps {
@@ -225,25 +222,6 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       headClassName="text-left text-muted-foreground"
       bodyClassName="divide-y divide-border"
       rowClassName="align-top hover:bg-muted/30"
-      renderAfterRow={actions ? (fill, colSpan) => (
-        actions.deletingId === fill.id ? (
-          <tr>
-            <td colSpan={colSpan} className="bg-destructive/5 px-4 py-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-foreground">
-                  Delete the <strong>{formatFillDate(fill.filled_on)}</strong> fill of <strong>{fillDrugName(fill)}</strong>? This cannot be undone.
-                </p>
-                <div className="flex gap-2">
-                  <Button variant="destructive" size="sm" disabled={actions.isMutating(`delete:${fill.id}`)} onClick={() => actions.onConfirmDelete(fill.id)}>
-                    {actions.isMutating(`delete:${fill.id}`) ? 'Deleting…' : 'Delete'}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={actions.onCancelDelete}>Cancel</Button>
-                </div>
-              </div>
-            </td>
-          </tr>
-        ) : null
-      ) : undefined}
     />
   )
 }

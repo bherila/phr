@@ -49,10 +49,13 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
 async function addConditionThroughUi(page: Page, patientId: number, name: string): Promise<number> {
   const created = page.waitForResponse((response) => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/phr/patients/${patientId}/conditions`)
-  await page.getByRole('button', { name: 'Add Condition' }).click()
-  await page.getByLabel('Name *').fill(name)
-  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await page.getByRole('button', { name: 'Add condition' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add condition' })
+  await dialog.getByLabel('Name *').fill(name)
+  await dialog.getByRole('button', { name: 'Add condition', exact: true }).click()
   const response = await created
+  // A new condition opens in the detail panel once the dialog closes.
+  await expect(dialog).toBeHidden()
   expect(response.status()).toBe(201)
   const payload = await response.json() as { condition: { id: number } }
   return payload.condition.id

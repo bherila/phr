@@ -1,19 +1,22 @@
 import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDate } from '@/lib/dateFormat'
+import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { type FieldErrors, fieldErrorsFrom, focusFirstInvalid } from '@/phr/clinical/fieldErrors'
+import { RecordFormDialog } from '@/phr/clinical/RecordFormDialog'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import { doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
-import { numericPayload, zodErrorMessage } from '@/phr/shared'
+import { numericPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
@@ -42,11 +45,12 @@ const EMPTY_FORM: PhrImmunizationFormData = {
 interface ImmunizationFormFieldsProps {
   form: PhrImmunizationFormData
   onChange: (form: PhrImmunizationFormData) => void
+  errors?: FieldErrors<PhrImmunizationFormData>
 }
 
-interface AddFormProps {
-  busy: boolean
-  onSubmit: (form: PhrImmunizationFormData) => Promise<boolean>
+/** The form's own words for what Zod would otherwise report in its own. */
+const FIELD_MESSAGES: FieldErrors<PhrImmunizationFormData> = {
+  vaccine_name: "Enter the vaccine's name.",
 }
 
 function immunizationFormFromRecord(immunization: PhrImmunization): PhrImmunizationFormData {
@@ -89,12 +93,19 @@ function doseLabel(immunization: PhrImmunization): string {
   return parts.length > 0 ? parts.join(' · ') : 'Dose not recorded'
 }
 
-function ImmunizationFormFields({ form, onChange }: ImmunizationFormFieldsProps) {
+function ImmunizationFormFields({ form, onChange, errors = {} }: ImmunizationFormFieldsProps) {
+  const errorId = useId()
   return (
     <div className="grid gap-3 md:grid-cols-2">
       <label className="grid gap-1 text-sm font-medium md:col-span-2">
         Vaccine Name *
-        <Input value={form.vaccine_name} onChange={(event) => onChange({ ...form, vaccine_name: event.target.value })} required />
+        <Input
+          value={form.vaccine_name}
+          maxLength={255}
+          onChange={(event) => onChange({ ...form, vaccine_name: event.target.value })}
+          {...(errors.vaccine_name ? { 'aria-invalid': true, 'aria-describedby': errorId } : {})}
+        />
+        {errors.vaccine_name && <span id={errorId} className="text-xs font-normal text-destructive">{errors.vaccine_name}</span>}
       </label>
       <label className="grid gap-1 text-sm font-medium">
         Administered On
@@ -144,39 +155,45 @@ function ImmunizationFormFields({ form, onChange }: ImmunizationFormFieldsProps)
   )
 }
 
-function AddForm({ busy, onSubmit }: AddFormProps) {
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState<PhrImmunizationFormData>(EMPTY_FORM)
+function ImmunizationFormDialog({ immunization, busy, error, onSubmit, onClose }: {
+  immunization: PhrImmunization | null
+  busy: boolean
+  error: string | null
+  onSubmit: (form: PhrImmunizationFormData) => Promise<boolean>
+  onClose: () => void
+}) {
+  const formRef = useRef<HTMLFormElement>(null)
+  const [form, setForm] = useState<PhrImmunizationFormData>(() => (immunization ? immunizationFormFromRecord(immunization) : EMPTY_FORM))
+  const [errors, setErrors] = useState<FieldErrors<PhrImmunizationFormData>>({})
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+  useEffect(() => {
+    focusFirstInvalid(formRef.current)
+  }, [errors])
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    const added = await onSubmit(form)
-    if (added) {
-      setForm(EMPTY_FORM)
-      setOpen(false)
+    const parsed = PhrImmunizationFormSchema.safeParse(form)
+    if (!parsed.success) {
+      setErrors(fieldErrorsFrom(parsed.error, FIELD_MESSAGES))
+      return
     }
-  }
-
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Add Immunization
-      </Button>
-    )
+    setErrors({})
+    await onSubmit(parsed.data)
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 text-sm font-semibold text-card-foreground">Add Immunization</h2>
-      <form onSubmit={(event) => void handleSubmit(event)} className="space-y-3">
-        <ImmunizationFormFields form={form} onChange={setForm} />
-        <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={busy}>{busy ? 'Adding...' : 'Add'}</Button>
-          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
-        </div>
-      </form>
-    </div>
+    <RecordFormDialog
+      title={immunization ? 'Edit immunization' : 'Add immunization'}
+      description="The vaccine, when and where it was given, the dose and notes."
+      submitLabel={immunization ? 'Save' : 'Add immunization'}
+      busy={busy}
+      error={error}
+      onSubmit={(event) => void submit(event)}
+      onClose={onClose}
+      formRef={formRef}
+    >
+      <ImmunizationFormFields form={form} onChange={setForm} errors={errors} />
+    </RecordFormDialog>
   )
 }
 
@@ -198,29 +215,35 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
   })
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
   const firstLoad = crud.busy && crud.records.length === 0
+  // The add or edit dialog: null closed, 'new' adding, an immunization editing it.
+  const [editing, setEditing] = useState<PhrImmunization | 'new' | null>(null)
 
-  async function addImmunization(form: PhrImmunizationFormData): Promise<boolean> {
-    const parsed = PhrImmunizationFormSchema.safeParse(form)
-    if (!parsed.success) {
-      crud.setError(zodErrorMessage(parsed.error))
-      return false
-    }
-
-    return (await crud.addRecord(parsed.data)) !== null
+  function openEditor(target: PhrImmunization | 'new'): void {
+    crud.setError(null)
+    setEditing(target)
   }
 
-  async function saveImmunization(immunizationId: number): Promise<void> {
-    const parsed = PhrImmunizationFormSchema.safeParse(crud.editForm)
-    if (!parsed.success) {
-      crud.setError(zodErrorMessage(parsed.error))
-      return
-    }
-
-    const updated = await crud.patchRecord(immunizationId, immunizationPayload(parsed.data))
-    if (updated) {
-      crud.cancelEdit()
-    }
+  function closeEditor(): void {
+    crud.setError(null)
+    setEditing(null)
   }
+
+  async function saveImmunization(form: PhrImmunizationFormData): Promise<boolean> {
+    if (editing === null) return false
+    if (editing === 'new') {
+      const added = await crud.addRecord(form)
+      if (!added) return false
+      closeEditor()
+      onDrill?.({ id: 'immunization-detail', instance: String(added.id) })
+      return true
+    }
+    const updated = await crud.patchRecord(editing.id, immunizationPayload(form))
+    if (!updated) return false
+    closeEditor()
+    return true
+  }
+
+  const deleting = crud.deletingId === null ? null : crud.records.find((immunization) => immunization.id === crud.deletingId) ?? null
 
   const busyFor = (immunization: PhrImmunization): boolean => crud.isMutating(`save:${immunization.id}`) || crud.isMutating(`delete:${immunization.id}`)
   const columns: RecordColumn<PhrImmunization>[] = [
@@ -302,7 +325,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
             title={`Edit ${immunization.vaccine_name}`}
             aria-label={`Edit ${immunization.vaccine_name}`}
             disabled={busyFor(immunization)}
-            onClick={() => crud.startEdit(immunization)}
+            onClick={() => openEditor(immunization)}
           >
             <Pencil className="size-4" />
           </Button>
@@ -314,7 +337,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
             title={`Delete ${immunization.vaccine_name}`}
             aria-label={`Delete ${immunization.vaccine_name}`}
             disabled={busyFor(immunization)}
-            onClick={() => crud.startDelete(immunization.id)}
+            onClick={() => { crud.setError(null); crud.startDelete(immunization.id) }}
           >
             <Trash2 className="size-4" />
           </Button>
@@ -340,7 +363,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
 
       <EhiPendingBanner patientId={patientId} mapping="immunization" className="mb-4" />
 
-      {crud.error && (
+      {crud.error && editing === null && deleting === null && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {crud.error}
         </div>
@@ -348,7 +371,10 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
 
       {crud.canManage && (
         <div className="mb-6 flex flex-wrap items-start gap-2">
-          <AddForm busy={crud.isMutating('add')} onSubmit={addImmunization} />
+          <Button type="button" size="sm" variant="outline" onClick={() => openEditor('new')}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add immunization
+          </Button>
           <Button type="button" size="sm" variant="outline" onClick={() => onDrill?.({ id: 'documents' })}>
             Import via GenAI
           </Button>
@@ -375,53 +401,27 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
             headClassName="text-left text-muted-foreground"
             bodyClassName="divide-y divide-border"
             rowClassName="align-top hover:bg-muted/30"
-            renderAfterRow={(immunization, colSpan) => {
-              const isSaving = crud.isMutating(`save:${immunization.id}`)
-              const isDeletingBusy = crud.isMutating(`delete:${immunization.id}`)
-              return (
-                <>
-                  {crud.editingId === immunization.id && (
-                    <tr>
-                      <td colSpan={colSpan} className="bg-muted/20 px-4 py-4">
-                        <form
-                          className="space-y-3"
-                          onSubmit={(event) => {
-                            event.preventDefault()
-                            void saveImmunization(immunization.id)
-                          }}
-                        >
-                          <ImmunizationFormFields form={crud.editForm} onChange={crud.setEditForm} />
-                          <div className="flex gap-2">
-                            <Button type="submit" size="sm" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
-                            <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={crud.cancelEdit}>Cancel</Button>
-                          </div>
-                        </form>
-                      </td>
-                    </tr>
-                  )}
-                  {crud.deletingId === immunization.id && (
-                    <tr>
-                      <td colSpan={colSpan} className="bg-destructive/5 px-4 py-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="text-sm text-foreground">
-                            Delete <strong>{immunization.vaccine_name}</strong>? This cannot be undone.
-                          </p>
-                          <div className="flex gap-2">
-                            <Button variant="destructive" size="sm" disabled={isDeletingBusy} onClick={() => void crud.deleteRecord(immunization.id)}>
-                              {isDeletingBusy ? 'Deleting...' : 'Delete'}
-                            </Button>
-                            <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={crud.cancelDelete}>Cancel</Button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
-              )
-            }}
           />
         </section>
       )}
+      {editing !== null && (
+        <ImmunizationFormDialog
+          immunization={editing === 'new' ? null : editing}
+          busy={crud.isMutating('add') || (editing !== 'new' && crud.isMutating(`save:${editing.id}`))}
+          error={crud.error}
+          onSubmit={saveImmunization}
+          onClose={closeEditor}
+        />
+      )}
+      <ConfirmDeleteDialog
+        open={deleting !== null}
+        title="Delete this immunization?"
+        description={<><strong>{deleting?.vaccine_name}</strong> will be removed from this record. You can't undo this.</>}
+        busy={deleting !== null && crud.isMutating(`delete:${deleting.id}`)}
+        error={deleting !== null ? crud.error : null}
+        onConfirm={() => { if (deleting) void crud.deleteRecord(deleting.id) }}
+        onCancel={() => { crud.setError(null); crud.cancelDelete() }}
+      />
     </div>
   )
 }
