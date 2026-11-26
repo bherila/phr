@@ -35,7 +35,8 @@ function initials(name: string): string {
  * someone else, or one someone shared with you (marked view only when you cannot edit it).
  */
 export function relationshipLabel(patient: PhrPatient): string {
-  if (patient.can_share) return patient.relationship === 'self' ? 'You' : 'You manage this record'
+  // Free text: the Self suggestion stores "Self", imports and older entries "self".
+  if (patient.can_share) return patient.relationship?.trim().toLowerCase() === 'self' ? 'You' : 'You manage this record'
   return 'Shared with you'
 }
 
