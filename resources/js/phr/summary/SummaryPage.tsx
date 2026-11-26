@@ -1,9 +1,12 @@
-import { AlertTriangle, Download, FlaskConical, HeartPulse, ImageIcon, Pill, RefreshCw, Stethoscope, Users } from 'lucide-react'
+import { AlertTriangle, Download, FlaskConical, HeartPulse, ImageIcon, Pencil, Pill, RefreshCw, Stethoscope, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
+import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
+import { patientActions, profileFacts } from '@/phr/patients/patientProfile'
+import { PatientProfileDialog } from '@/phr/patients/PatientProfileDialog'
 import { type ReviewSummary, useReviewSummary } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 import { patientPageUrl } from '@/phr/shell/phrRoutes'
@@ -90,6 +93,7 @@ export default function SummaryPage({ patientId }: { patientId: number }) {
   const [exportBusy, setExportBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [profileOpen, setProfileOpen] = useState(false)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -177,15 +181,39 @@ export default function SummaryPage({ patientId }: { patientId: number }) {
   const recentLabs = labs.slice(0, 5)
 
   const accessGrants = patient?.access_grants ?? []
+  const facts = patient ? profileFacts(patient) : []
+  const actions = patient ? patientActions(patient, { onEditProfile: () => setProfileOpen(true) }) : []
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-foreground">{patient?.display_name ?? 'Summary'}</h1>
-        {patient?.relationship && (
-          <p className="mt-1 text-sm text-muted-foreground">{patient.relationship}</p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-[1_1_320px]">
+          <h1 className="text-2xl font-semibold text-foreground">{patient?.display_name ?? 'Summary'}</h1>
+          {facts.length > 0 && (
+            <p className="mt-1 text-sm text-muted-foreground">{facts.join(' · ')}</p>
+          )}
+        </div>
+        {patient && actions.length > 0 && (
+          <div className="flex items-center gap-1">
+            <Button type="button" variant="outline" size="sm" onClick={() => setProfileOpen(true)}>
+              <Pencil className="size-4" aria-hidden="true" />
+              Edit profile
+            </Button>
+            {actions.length > 1 && (
+              <RowActionsMenu label={patient.display_name ?? 'this patient'} actions={actions.slice(1)} />
+            )}
+          </div>
         )}
       </div>
+
+      {patient && (
+        <PatientProfileDialog
+          open={profileOpen}
+          onOpenChange={setProfileOpen}
+          patient={patient}
+          onSaved={(saved) => setPatient(saved)}
+        />
+      )}
 
       {allAbnormalLabs.length > 0 && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-yellow-400/50 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">

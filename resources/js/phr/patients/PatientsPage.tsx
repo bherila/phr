@@ -1,7 +1,7 @@
 import { Lock, Plus, Search, UserRound } from 'lucide-react'
 import { type MouseEvent, type ReactElement, useEffect, useMemo, useState } from 'react'
 
-import { type RowAction, RowActionsMenu } from '@/components/record-list/RowActionsMenu'
+import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { Button } from '@/components/ui/button'
 import { patientUrl } from '@/lib/phrRouteBuilder'
 import { cn } from '@/lib/utils'
@@ -12,16 +12,12 @@ import { patientDisplayName } from '@/phr/shell/PhrSidebar'
 import type { PhrPatient } from '@/phr/types'
 
 import { attentionTitle, getPatientOverview, type PatientOverview } from './patientOverview'
+import { patientActions } from './patientProfile'
 import { PatientProfileDialog } from './PatientProfileDialog'
 import { usePhrPatients } from './usePhrPatients'
 
 interface PatientsPageProps {
   onPatientSelect?: (patientId: number, page?: PhrPageId) => void
-}
-
-/** The Data Hub, opened at one patient's card, where exports, backups and deletion live. */
-export function dataHubPatientUrl(patientId: number): string {
-  return `/phr/data-hub?patient_id=${patientId}`
 }
 
 const count = new Intl.NumberFormat('en-US')
@@ -78,19 +74,6 @@ export default function PatientsPage({ onPatientSelect }: PatientsPageProps): Re
   function openPatient(patientId: number, page?: PhrPageId): void {
     if (onPatientSelect) onPatientSelect(patientId, page)
     else pushPhrLocation(page ? patientPageUrl(patientId, page) : patientUrl(patientId))
-  }
-
-  function patientActions(patient: PhrPatient): RowAction[] {
-    if (!patient.can_manage) return []
-    const actions: RowAction[] = [{ label: 'Edit profile', onSelect: () => openProfile(patient) }]
-    if (patient.can_share) {
-      actions.push(
-        { label: 'Sharing and access', onSelect: () => openPatient(patient.id, 'access') },
-        { label: 'Export or back up', onSelect: () => pushPhrLocation(dataHubPatientUrl(patient.id)) },
-        { label: 'Delete patient…', destructive: true, onSelect: () => pushPhrLocation(dataHubPatientUrl(patient.id)) },
-      )
-    }
-    return actions
   }
 
   function handlePatientClick(event: MouseEvent<HTMLAnchorElement>, patientId: number): void {
@@ -153,7 +136,10 @@ export default function PatientsPage({ onPatientSelect }: PatientsPageProps): Re
             const name = patientDisplayName(patient.display_name, patient.id)
             const row = counts.get(patient.id)
             const updated = row?.last_updated ? formatSourceDate(row.last_updated) : null
-            const actions = patientActions(patient)
+            const actions = patientActions(patient, {
+              onEditProfile: () => openProfile(patient),
+              onOpenAccess: () => openPatient(patient.id, 'access'),
+            })
             return (
               <li key={patient.id} className="relative">
                 <a
