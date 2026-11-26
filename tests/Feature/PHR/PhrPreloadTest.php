@@ -102,9 +102,7 @@ final class PhrPreloadTest extends TestCase
         }
 
         // The patient list already arrives with every shell; Imports picks its patient in the browser.
-        foreach (['/phr/patients/manage', '/phr/imports'] as $path) {
-            $this->assertNull($this->preload($this->actingAs($this->owner)->get($path)->assertOk()), $path);
-        }
+        $this->assertNull($this->preload($this->actingAs($this->owner)->get('/phr/imports')->assertOk()), '/phr/imports');
     }
 
     public function test_delegates_and_viewers_get_their_own_responses_and_others_get_the_same_404_without_a_preload(): void

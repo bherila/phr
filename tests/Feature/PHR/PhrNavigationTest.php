@@ -122,7 +122,7 @@ class PhrNavigationTest extends TestCase
         $this->withoutVite();
 
         foreach ([
-            '/phr/patients/manage' => 'manage-patients',
+            '/phr/data-hub' => 'data-hub',
             '/phr/imports' => 'imports',
             '/phr/config' => 'config',
         ] as $path => $section) {

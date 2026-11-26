@@ -25,7 +25,6 @@ import { currentUser, relyingApplications } from '@/lib/appShell'
 import type { PhrSection } from '@/lib/phrRouteBuilder'
 import { phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { cn } from '@/lib/utils'
-import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 
 interface PhrNavbarProps {
   activeSection?: PhrSection
@@ -53,7 +52,6 @@ interface SectionLink {
 
 const SECTION_LINKS: SectionLink[] = [
   { section: 'patients', label: 'Patients' },
-  { section: 'manage-patients', label: 'Manage Patients' },
   { section: 'imports', label: 'Imports' },
   { section: 'data-hub', label: 'Data Hub', icon: Database },
   { section: 'config', label: 'Config', icon: Settings },
@@ -65,12 +63,10 @@ export function sectionLabel(section: PhrSection): string {
 
 /** The top-level sections as a plain list, for the phone menu. */
 export function PhrSectionLinks({ activeSection, inPatient = false, className }: Pick<PhrNavbarProps, 'activeSection' | 'inPatient' | 'className'>) {
-  const { patients } = usePhrPatients()
-  const canManageAnyPatient = patients.some((patient) => patient.can_manage)
   const current = inPatient ? 'patients' : activeSection
   return (
     <nav aria-label="Sections" className={cn('flex flex-col gap-0.5', className)}>
-      {SECTION_LINKS.filter((link) => link.section !== 'manage-patients' || canManageAnyPatient).map((link) => (
+      {SECTION_LINKS.map((link) => (
         <a
           key={link.section}
           href={phrSectionUrl(link.section)}
@@ -97,8 +93,6 @@ export default function PhrNavbar({
   onSectionChange,
   onSearch,
 }: PhrNavbarProps) {
-  const { patients } = usePhrPatients()
-
   // Read once per mount: both come from the server-rendered initial data, which does not
   // change while the page is open.
   const signedInUser = useMemo(() => currentUser(), [])
@@ -111,11 +105,6 @@ export default function PhrNavbar({
   const csrfToken = typeof document === 'undefined'
     ? ''
     : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '')
-
-  const canManageAnyPatient = useMemo<boolean>(
-    () => patients.some((patient) => patient.can_manage),
-    [patients],
-  )
 
   const current = inPatient ? 'patients' : activeSection
 
@@ -170,7 +159,7 @@ export default function PhrNavbar({
 
           <NavigationMenu viewport={false} aria-label="Sections" className="ml-auto flex-none max-md:hidden">
             <NavigationMenuList className="flex-wrap justify-end">
-              {SECTION_LINKS.filter((link) => link.section !== 'manage-patients' || canManageAnyPatient).map((link) => {
+              {SECTION_LINKS.map((link) => {
                 const anchor = (
                   <NavigationMenuLink
                     href={phrSectionUrl(link.section)}

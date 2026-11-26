@@ -52,11 +52,6 @@ class PageController extends Controller
         return $this->shell('patients', 'PHR Patients', preload: $this->preload->build($request, PhrPreloadPlan::forSection('patients')));
     }
 
-    public function managePatients(): Response
-    {
-        return $this->shell('manage-patients', 'Manage Patients');
-    }
-
     public function imports(): Response
     {
         return $this->shell('imports', 'PHR Imports');

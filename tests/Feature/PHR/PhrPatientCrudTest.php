@@ -167,14 +167,8 @@ class PhrPatientCrudTest extends TestCase
 
     // ── MANAGE PAGE ──────────────────────────────────────────────────────────────
 
-    public function test_manage_patients_page_renders_for_authenticated_user(): void
+    public function test_the_old_manage_patients_page_redirects_to_patients(): void
     {
-        $this->withoutVite();
-        $response = $this->actingAs($this->createUser())->get('/phr/patients/manage');
-
-        $response->assertOk();
-        $response->assertViewIs('phr.shell');
-        $response->assertSee('data-active-section="manage-patients"', false);
-        $response->assertSee('PhrShell');
+        $this->actingAs($this->createUser())->get('/phr/patients/manage')->assertRedirect('/phr/patients');
     }
 }

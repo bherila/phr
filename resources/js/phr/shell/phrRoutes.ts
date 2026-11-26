@@ -2,9 +2,9 @@
  * The PHR URL model. Every view the shell can show has exactly one path, and the shell renders
  * whatever the location says, so a URL is shareable and Back/Forward restore the whole view.
  *
- * - `/phr/patients`, `/phr/patients/manage`, `/phr/imports`, `/phr/data-hub`, `/phr/config`:
- *   section pages with no patient context. Their query string (e.g. `?patient_id=` on Imports)
- *   is part of the view and is kept as-is.
+ * - `/phr/patients`, `/phr/imports`, `/phr/data-hub`, `/phr/config`: section pages with no
+ *   patient context. Their query string (e.g. `?patient_id=` on Imports and Data Hub) is part of
+ *   the view and is kept as-is. The server redirects the old `/phr/patients/manage` to Patients.
  * - `/phr/patient/{id}`: the patient's Summary.
  * - `/phr/patient/{id}/{page}`: one of the patient's record pages (`labs`, `conditions`, …),
  *   or `review`, everything waiting for the patient's review.
@@ -18,7 +18,7 @@
  * The old Miller shell kept its columns in the hash (`/phr/patient/12#/labs/lab-panel-detail:5`).
  * {@link legacyHashUrl} maps those onto the paths above so bookmarks keep working.
  */
-export type PhrSection = 'patients' | 'manage-patients' | 'data-hub' | 'imports' | 'config'
+export type PhrSection = 'patients' | 'data-hub' | 'imports' | 'config'
 
 export type PhrPageId =
   | 'review'
@@ -94,7 +94,6 @@ export const PHR_PAGE_IDS: readonly PhrPageId[] = [
 
 const SECTION_PATHS: Record<PhrSection, string> = {
   patients: '/phr/patients',
-  'manage-patients': '/phr/patients/manage',
   'data-hub': '/phr/data-hub',
   imports: '/phr/imports',
   config: '/phr/config',
@@ -103,7 +102,8 @@ const SECTION_PATHS: Record<PhrSection, string> = {
 /** The old shell's column id for each section, used only to read legacy hashes. */
 const SECTION_MODULES: Record<string, PhrSection> = {
   patients: 'patients',
-  'patients-manage': 'manage-patients',
+  // Manage Patients is part of Patients now.
+  'patients-manage': 'patients',
   'data-hub': 'data-hub',
   imports: 'imports',
   config: 'config',

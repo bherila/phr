@@ -1,10 +1,11 @@
 import { Archive, Database, Download, HardDrive, RefreshCw, RotateCcw, ShieldCheck, Trash2, Upload, Users } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatInstant } from '@/lib/dateFormat'
+import { cn } from '@/lib/utils'
 import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
 import { type PhrExport, PhrExportResponseSchema, PhrExportsResponseSchema } from '@/phr/types'
@@ -133,7 +134,12 @@ interface PatientCardProps {
   onDelete: (patientId: number, preview: PatientDeletionPreview, acknowledgeShares: boolean) => Promise<void>
 }
 
-function PatientCard({ patient, currentExport, currentBackup, busy, exportError, backupError, deletionPreview, deletionError, onGenerate, onRefresh, onGenerateBackup, onRefreshBackup, onPreviewDeletion, onDelete }: PatientCardProps): ReactElement {
+/** The element id of a patient's card, which `?patient_id=` opens the page at. */
+export function dataHubPatientCardId(patientId: number): string {
+  return `data-hub-patient-${patientId}`
+}
+
+function PatientCard({ patient, currentExport, currentBackup, busy, exportError, backupError, deletionPreview, deletionError, onGenerate, onRefresh, onGenerateBackup, onRefreshBackup, onPreviewDeletion, onDelete, highlighted = false }: PatientCardProps & { highlighted?: boolean }): ReactElement {
   const [confirmation, setConfirmation] = useState('')
   const [acknowledgeShares, setAcknowledgeShares] = useState(false)
   const totalRecords = useMemo(
@@ -145,10 +151,15 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
   const backupInProgress = currentBackup?.status === 'pending' || currentBackup?.status === 'processing'
 
   return (
-    <article className="rounded-lg border border-border bg-card p-5 text-card-foreground shadow-sm">
+    <article
+      id={dataHubPatientCardId(patient.id)}
+      tabIndex={-1}
+      aria-labelledby={`${dataHubPatientCardId(patient.id)}-name`}
+      className={cn('scroll-mt-4 rounded-lg border bg-card p-5 text-card-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', highlighted ? 'border-primary' : 'border-border')}
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">{patient.display_name ?? `Patient ${patient.id}`}</h2>
+          <h2 id={`${dataHubPatientCardId(patient.id)}-name`} className="text-lg font-semibold">{patient.display_name ?? `Patient ${patient.id}`}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {patient.relationship ?? 'Patient profile'} · {totalRecords.toLocaleString()} authoritative records
           </p>
@@ -490,6 +501,12 @@ export default function DataHubPage(): ReactElement {
   const [deletionErrors, setDeletionErrors] = useState<Record<number, string>>({})
   const [deletionResults, setDeletionResults] = useState<PatientDeletion[]>([])
   const [deletionStatusErrors, setDeletionStatusErrors] = useState<Record<number, string>>({})
+  // `?patient_id=` (the Patients card menu's Export and Delete) opens the page at that patient's card.
+  const [highlightedPatientId] = useState<number | null>(() => {
+    const value = Number(new URLSearchParams(window.location.search).get('patient_id'))
+    return Number.isInteger(value) && value > 0 ? value : null
+  })
+  const scrolledToPatient = useRef(false)
 
   const loadInventory = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -511,6 +528,15 @@ export default function DataHubPage(): ReactElement {
   useEffect(() => {
     void loadInventory()
   }, [loadInventory])
+
+  useEffect(() => {
+    if (highlightedPatientId === null || scrolledToPatient.current || !inventory) return
+    const card = document.getElementById(dataHubPatientCardId(highlightedPatientId))
+    if (!card) return
+    scrolledToPatient.current = true
+    card.scrollIntoView?.({ block: 'start' })
+    card.focus({ preventScroll: true })
+  }, [highlightedPatientId, inventory])
 
   const restoreCompleted = useCallback(async (): Promise<void> => {
     await Promise.all([loadInventory(), patientList?.reloadPatients({ afterMutation: true })])
@@ -755,6 +781,7 @@ export default function DataHubPage(): ReactElement {
               onRefreshBackup={refreshBackup}
               onPreviewDeletion={previewDeletion}
               onDelete={deletePatient}
+              highlighted={highlightedPatientId === patient.id}
             />
           ))}
         </div>

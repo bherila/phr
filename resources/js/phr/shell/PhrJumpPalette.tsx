@@ -16,8 +16,7 @@ import { patientPath, type PhrSection, sectionPath } from './phrRoutes'
 import { patientDisplayName } from './PhrSidebar'
 
 const SECTIONS: { section: PhrSection, label: string, keywords: string[] }[] = [
-  { section: 'patients', label: 'Patients', keywords: ['patients', 'profiles', 'people'] },
-  { section: 'manage-patients', label: 'Manage Patients', keywords: ['manage', 'add', 'edit', 'profiles'] },
+  { section: 'patients', label: 'Patients', keywords: ['patients', 'profiles', 'people', 'add', 'manage'] },
   { section: 'imports', label: 'Imports', keywords: ['imports', 'upload', 'ccda', 'fhir', 'ehi'] },
   { section: 'data-hub', label: 'Data Hub', keywords: ['data', 'inventory', 'export', 'backup', 'restore', 'delete'] },
   { section: 'config', label: 'Config', keywords: ['config', 'settings', 'preferences', 'ai', 'devices'] },
