@@ -27,7 +27,7 @@ class PhrSectionTest extends TestCase
         $user = $this->createUser();
 
         $this->actingAs($user)->get('/phr/patients')->assertOk();
-        $this->actingAs($user)->get('/phr/patients/manage')->assertOk();
+        $this->actingAs($user)->get('/phr/patients/manage')->assertRedirect('/phr/patients');
         $this->actingAs($user)->get('/phr/imports')->assertOk();
         $this->actingAs($user)->get('/phr/config')->assertOk();
     }

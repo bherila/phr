@@ -130,7 +130,6 @@ export function sidebarPageOf(page: PhrPageId): PhrPageId {
 }
 
 export const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))
-export const PatientsManagePage = lazy(() => import('@/phr/patients-manage/PatientsManagePage'))
 export const DataHubPage = lazy(() => import('@/phr/data-hub/DataHubPage'))
 export const ImportsPage = lazy(() => import('@/phr/imports/ImportsPage'))
 const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))

@@ -12,7 +12,7 @@ import { DicomUploadProvider, DicomUploadTray } from '@/phr/uploads'
 
 import { PhrJumpPalette } from './PhrJumpPalette'
 import { pushPhrLocation } from './phrLocation'
-import { ConfigPage, DataHubPage, ImportsPage, PatientsManagePage, PatientsPage } from './phrPages'
+import { ConfigPage, DataHubPage, ImportsPage, PatientsPage } from './phrPages'
 import { PhrPatientSearchPalette } from './PhrPatientSearchPalette'
 import { PAGE_CONTENT_MAX_WIDTH, PhrPatientView } from './PhrPatientView'
 import { detailPresentation, patientPageUrl, patientPath, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
@@ -146,8 +146,6 @@ function SectionContent({ view }: { view: Extract<PhrView, { kind: 'section' }> 
           onPatientSelect={(patientId, page) => pushPhrLocation(page ? patientPageUrl(patientId, page) : patientPath(patientId))}
         />
       )
-    case 'manage-patients':
-      return <PatientsManagePage />
     case 'data-hub':
       return <DataHubPage />
     case 'imports':

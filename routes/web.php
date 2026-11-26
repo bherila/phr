@@ -51,7 +51,8 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/device-pairing/deny', [DevicePairingController::class, 'deny'])->name('device-pairing.deny');
     Route::get('/phr', [PHRPageController::class, 'index'])->name('phr.index');
     Route::get('/phr/patients', [PHRPageController::class, 'patients'])->name('phr.patients');
-    Route::get('/phr/patients/manage', [PHRPageController::class, 'managePatients'])->name('phr.patients.manage');
+    // Adding and editing patients moved onto Patients; old links and bookmarks land there.
+    Route::redirect('/phr/patients/manage', '/phr/patients')->name('phr.patients.manage');
     Route::get('/phr/imports', [PHRPageController::class, 'imports'])->name('phr.imports');
     Route::get('/phr/config', [PHRPageController::class, 'config'])->name('phr.config');
     Route::get('/phr/data-hub', [PHRPageController::class, 'dataHub'])->name('phr.data-hub');

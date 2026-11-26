@@ -91,5 +91,7 @@ describe('relationshipLabel', () => {
   it('names your own profile, one you own for someone else, and one shared with you', () => {
     expect(PATIENTS.map((candidate) => relationshipLabel(candidate))).toEqual(['You', 'You manage this record', 'Shared with you'])
     expect(relationshipLabel(patient(4, 'Managed', { access_level: 'manager', can_share: false }))).toBe('Shared with you')
+    // The Self suggestion stores the word as shown.
+    expect(relationshipLabel(patient(5, 'Me', { relationship: 'Self' }))).toBe('You')
   })
 })

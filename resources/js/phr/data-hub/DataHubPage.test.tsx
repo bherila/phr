@@ -225,6 +225,18 @@ describe('DataHubPage', () => {
     expect(screen.queryByText('Undisclosed health value')).not.toBeInTheDocument()
   })
 
+  it('opens at the patient a link names, so Patients can send someone straight to export or deletion', async () => {
+    window.history.pushState({}, '', '/phr/data-hub?patient_id=42')
+    try {
+      render(<DataHubPage />)
+      const card = await screen.findByRole('article', { name: 'Synthetic Record Owner' })
+      await waitFor(() => expect(card).toHaveFocus())
+      expect(card).toHaveClass('border-primary')
+    } finally {
+      window.history.pushState({}, '', '/')
+    }
+  })
+
   it('generates a patient-specific C-CDA XML export and exposes its signed download', async () => {
     render(<DataHubPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Generate C-CDA XML' }))

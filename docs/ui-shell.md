@@ -41,7 +41,7 @@ text; they move to the dot as each page is revisited. **(planned)**
 
 ```
 ┌──────────────────────── top bar ────────────────────────┐
-│ PHR   [Search this patient… ⌘K]   Patients · Manage · Imports · Data Hub · Config · ⓤ │
+│ PHR   [Search this patient… ⌘K]   Patients · Imports · Data Hub · Config · ⓤ │
 ├──────────┬───────────────────────────────┬──────────────┤
 │ sidebar  │ page                          │ detail panel │
 │ (patient │ breadcrumb, title, actions,   │ (optional)   │
@@ -82,7 +82,7 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
     and EHI reviews) fetches the summary again, so the counts follow without a reload. The
     Review page's own listing carries the summary, so opening it costs no second request.
 
-  Section pages (Imports, Data Hub, Config, Manage Patients, Patients) have no patient
+  Section pages (Patients, Imports, Data Hub, Config) have no patient
   sidebar. **(shipped)**
 - **Page.** A breadcrumb (`Patient / Section [/ Item]`), then the page's own title and
   actions, and the content. Page content (breadcrumb, header, toolbar, list) stops at 1280px
@@ -196,7 +196,7 @@ Every view has a real path, so browser Back and Forward, reloads and shared link
 
 | Path | View |
 |---|---|
-| `/phr/patients`, `/phr/patients/manage`, `/phr/imports`, `/phr/data-hub`, `/phr/config` | Top-level sections. Their query string is part of the view, e.g. `/phr/imports?patient_id={id}` preselects a patient |
+| `/phr/patients`, `/phr/imports`, `/phr/data-hub`, `/phr/config` | Top-level sections. Their query string is part of the view, e.g. `/phr/imports?patient_id={id}` preselects a patient and `/phr/data-hub?patient_id={id}` opens at that patient's card. The old `/phr/patients/manage` redirects to `/phr/patients` |
 | `/phr/patient/{patientId}` | The patient's Summary |
 | `/phr/patient/{patientId}/{section}` | A record section. The segment is the section's id: `review`, `summary`, `health-log`, `labs`, `vitals`, `office-visits` (Visits), `medications`, `medication-fills` (Fills), `conditions`, `procedures`, `immunizations`, `allergies`, `documents`, `imaging`, `access` |
 | `/phr/patient/{patientId}/{section}/{recordId}` | That section with one of its own records open |
@@ -387,6 +387,24 @@ route's own authorization and conflict checks.
   record" for one you own for someone else, "Shared with you" for one shared with you, which
   is also marked "View only" when you cannot edit it), its record count, its last update,
   and "N waiting for review".
+- **Card actions.** A ⋯ menu beside each card you can manage, outside the card's link: Edit
+  profile, and for a record you own, Sharing and access (the patient's Access page), Export or
+  back up and Delete patient… (both open the Data Hub at that patient's card, where the
+  deletion preview and typed confirmation live). A view-only card has no menu.
+- **Add and edit.** Add patient opens a dialog asking for the name, birth date and
+  relationship, with names on documents, sex at birth and notes under More details. Its button,
+  Add and open record, opens the new patient's Summary. Edit profile opens the same dialog with
+  every field shown. Both write to the shared patient list, so the navbar, sidebar, cards and
+  import picker follow without a reload. There is no separate Manage Patients page any more.
+  - Relationship stays free text, with suggestions (Self, Child, Spouse or partner, Parent,
+    Sibling) that fill it in.
+  - Sex at birth is a choice of Not recorded, Female, Male or Intersex, stored as the label,
+    which the C-CDA and FHIR exports already map. An older value the choices don't name ("X")
+    is kept and shown as its own choice until another is picked; "M" and "F" select Male and
+    Female without being rewritten.
+  - Names on documents are added one at a time (Enter, Add, or leaving the field), refused
+    when already listed regardless of case, and capped at the server's 20.
+  - A missing name is reported on the field, not in a banner.
 - **Needs your attention.** Below the cards, across patients: records ready to review, EHI
   exports and finished AI extractions with proposals to review, and AI extractions and EHI
   uploads that failed in the last 30 days. Ready items come first and link to the patient's

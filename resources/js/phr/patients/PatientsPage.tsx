@@ -1,20 +1,27 @@
 import { Lock, Plus, Search, UserRound } from 'lucide-react'
 import { type MouseEvent, type ReactElement, useEffect, useMemo, useState } from 'react'
 
+import { type RowAction, RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { Button } from '@/components/ui/button'
 import { patientUrl } from '@/lib/phrRouteBuilder'
 import { cn } from '@/lib/utils'
 import { formatSourceDate } from '@/phr/imports/ehi/ehiProposalView'
+import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import { patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
 import { patientDisplayName } from '@/phr/shell/PhrSidebar'
 import type { PhrPatient } from '@/phr/types'
 
 import { attentionTitle, getPatientOverview, type PatientOverview } from './patientOverview'
+import { PatientProfileDialog } from './PatientProfileDialog'
 import { usePhrPatients } from './usePhrPatients'
 
 interface PatientsPageProps {
   onPatientSelect?: (patientId: number, page?: PhrPageId) => void
-  onManagePatients?: () => void
+}
+
+/** The Data Hub, opened at one patient's card, where exports, backups and deletion live. */
+export function dataHubPatientUrl(patientId: number): string {
+  return `/phr/data-hub?patient_id=${patientId}`
 }
 
 const count = new Intl.NumberFormat('en-US')
@@ -28,7 +35,8 @@ function initials(name: string): string {
  * someone else, or one someone shared with you (marked view only when you cannot edit it).
  */
 export function relationshipLabel(patient: PhrPatient): string {
-  if (patient.can_share) return patient.relationship === 'self' ? 'You' : 'You manage this record'
+  // Free text: the Self suggestion stores "Self", imports and older entries "self".
+  if (patient.can_share) return patient.relationship?.trim().toLowerCase() === 'self' ? 'You' : 'You manage this record'
   return 'Shared with you'
 }
 
@@ -37,10 +45,18 @@ export function relationshipLabel(patient: PhrPatient): string {
  * it, how much it holds and what waits for review, then what needs attention across all of
  * them. The counts are one request; the list itself is the shared patient list.
  */
-export default function PatientsPage({ onPatientSelect, onManagePatients }: PatientsPageProps): ReactElement {
+export default function PatientsPage({ onPatientSelect }: PatientsPageProps): ReactElement {
   const { patients, busy, error, loaded, reloadPatients } = usePhrPatients()
   const [overview, setOverview] = useState<PatientOverview | null>(null)
   const [query, setQuery] = useState('')
+  // The dialog keeps its patient while it closes, so its title does not change mid-animation.
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [profilePatient, setProfilePatient] = useState<PhrPatient | null>(null)
+
+  function openProfile(patient: PhrPatient | null): void {
+    setProfilePatient(patient)
+    setProfileOpen(true)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -59,10 +75,22 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
   const visible = patients.filter((patient) => patientDisplayName(patient.display_name, patient.id).toLowerCase().includes(query.trim().toLowerCase()))
   const attention = (overview?.attention ?? []).filter((item) => names.has(item.patient_id))
 
-  function handleManagePatientsClick(event: MouseEvent<HTMLAnchorElement>): void {
-    if (!onManagePatients) return
-    event.preventDefault()
-    onManagePatients()
+  function openPatient(patientId: number, page?: PhrPageId): void {
+    if (onPatientSelect) onPatientSelect(patientId, page)
+    else pushPhrLocation(page ? patientPageUrl(patientId, page) : patientUrl(patientId))
+  }
+
+  function patientActions(patient: PhrPatient): RowAction[] {
+    if (!patient.can_manage) return []
+    const actions: RowAction[] = [{ label: 'Edit profile', onSelect: () => openProfile(patient) }]
+    if (patient.can_share) {
+      actions.push(
+        { label: 'Sharing and access', onSelect: () => openPatient(patient.id, 'access') },
+        { label: 'Export or back up', onSelect: () => pushPhrLocation(dataHubPatientUrl(patient.id)) },
+        { label: 'Delete patient…', destructive: true, onSelect: () => pushPhrLocation(dataHubPatientUrl(patient.id)) },
+      )
+    }
+    return actions
   }
 
   function handlePatientClick(event: MouseEvent<HTMLAnchorElement>, patientId: number): void {
@@ -92,11 +120,9 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
               />
             </label>
           )}
-          <Button asChild>
-            <a href="/phr/patients/manage" onClick={handleManagePatientsClick}>
-              <Plus className="size-4" aria-hidden="true" />
-              Add Patient
-            </a>
+          <Button type="button" onClick={() => openProfile(null)}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add patient
           </Button>
         </div>
       </div>
@@ -117,9 +143,7 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
             <p className="font-medium text-foreground">No patient profiles yet</p>
             <p className="mt-1 text-sm text-muted-foreground">Add a profile to start tracking health records.</p>
           </div>
-          <Button asChild>
-            <a href="/phr/patients/manage" onClick={handleManagePatientsClick}>Add Patient</a>
-          </Button>
+          <Button type="button" onClick={() => openProfile(null)}>Add patient</Button>
         </div>
       )}
 
@@ -129,8 +153,9 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
             const name = patientDisplayName(patient.display_name, patient.id)
             const row = counts.get(patient.id)
             const updated = row?.last_updated ? formatSourceDate(row.last_updated) : null
+            const actions = patientActions(patient)
             return (
-              <li key={patient.id}>
+              <li key={patient.id} className="relative">
                 <a
                   href={patientUrl(patient.id)}
                   onClick={(event) => handlePatientClick(event, patient.id)}
@@ -138,7 +163,7 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
                 >
                   <span className="flex items-center gap-3">
                     <span aria-hidden="true" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-bold text-accent-foreground">{initials(name)}</span>
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className={cn('flex min-w-0 flex-1 flex-col gap-0.5', actions.length > 0 && 'pr-8')}>
                       <span className="truncate text-[17px] font-semibold">{name}</span>
                       <span className="text-sm text-muted-foreground">{relationshipLabel(patient)}</span>
                     </span>
@@ -162,6 +187,10 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
                     </span>
                   )}
                 </a>
+                {actions.length > 0 && (
+                  // A sibling of the card's link, not inside it: a button may not sit in a link.
+                  <RowActionsMenu label={name} actions={actions} triggerClassName="absolute top-3 right-3" />
+                )}
               </li>
             )
           })}
@@ -193,6 +222,13 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
           </ul>
         </section>
       )}
+
+      <PatientProfileDialog
+        open={profileOpen}
+        onOpenChange={setProfileOpen}
+        patient={profilePatient}
+        onSaved={(saved, created) => { if (created) openPatient(saved.id) }}
+      />
     </div>
   )
 }

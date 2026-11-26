@@ -28,7 +28,7 @@ final class PhrPatientBootstrapTest extends TestCase
         foreach ([$owner, $manager, $viewer, $unrelated] as $actor) {
             $api = $this->actingAs($actor)->getJson('/api/phr/patients')->assertOk()
                 ->assertHeader('Cache-Control', 'max-age=0, no-store, private')->json();
-            foreach (['/phr/patients', '/phr/patients/manage', '/phr/imports', '/phr/config', '/phr/data-hub'] as $path) {
+            foreach (['/phr/patients', '/phr/imports', '/phr/config', '/phr/data-hub'] as $path) {
                 $html = $this->get($path)->assertOk()->assertHeader('Cache-Control', 'max-age=0, no-store, private');
                 $this->assertSame($api, $this->initialData($html)['phr']['patient_list']);
             }
@@ -95,8 +95,8 @@ final class PhrPatientBootstrapTest extends TestCase
                 $profileReads[] = $event->sql;
             }
         });
-        // Manage Patients carries no other preload, so every patient read here is the bootstrap's.
-        $seed = $this->initialData($this->get('/phr/patients/manage')->assertOk());
+        // Imports carries no other preload, so every patient read here is the bootstrap's.
+        $seed = $this->initialData($this->get('/phr/imports')->assertOk());
         $this->assertArrayNotHasKey('phr', $seed);
         $this->assertCount(1, $profileReads, 'Overflow must stop after the scalar-ID query.');
         $this->assertStringContainsString('limit 101', $profileReads[0]);

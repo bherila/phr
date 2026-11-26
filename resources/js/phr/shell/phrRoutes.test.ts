@@ -20,7 +20,6 @@ const patient = (page: Extract<PhrView, { kind: 'patient' }>['page'], extra: Par
 describe('parsePhrLocation and phrViewUrl', () => {
   it.each([
     ['/phr/patients', { kind: 'section', section: 'patients', search: '' }],
-    ['/phr/patients/manage', { kind: 'section', section: 'manage-patients', search: '' }],
     ['/phr/imports', { kind: 'section', section: 'imports', search: '' }],
     ['/phr/data-hub', { kind: 'section', section: 'data-hub', search: '' }],
     ['/phr/config', { kind: 'section', section: 'config', search: '' }],
@@ -133,7 +132,7 @@ describe('legacyHashUrl', () => {
     ['/phr/patient/12', '#/labs/bad-id/imaging', '/phr/patient/12/imaging'],
     ['/phr/patient/12', '#/imports', '/phr/imports?patient_id=12'],
     ['/phr/patients', '#/patients', '/phr/patients'],
-    ['/phr/patients', '#/patients/patients-manage', '/phr/patients/manage'],
+    ['/phr/patients', '#/patients/patients-manage', '/phr/patients'],
     ['/phr/config', '#/config', '/phr/config'],
   ])('redirects %s%s to %s', (path, hash, expected) => {
     expect(legacyHashUrl(path, '', hash)).toBe(expected)

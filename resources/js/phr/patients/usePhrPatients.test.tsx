@@ -4,7 +4,6 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { StrictMode, useState } from 'react'
 
 import ImportsPage from '@/phr/imports/ImportsPage'
-import PatientsManagePage from '@/phr/patients-manage/PatientsManagePage'
 import { PhrSidebar } from '@/phr/shell/PhrSidebar'
 import type { PhrPatient } from '@/phr/types'
 
@@ -129,15 +128,15 @@ it.each(['absent', 'invalid JSON', 'invalid DTO'])('deduplicates one fallback re
 it('reuses the list as sections unmount and mount inside the same provider', async () => {
   function Navigation() {
     const [page, setPage] = useState('patients')
-    return <><button type="button" onClick={() => setPage('imports')}>Open imports</button><button type="button" onClick={() => setPage('manage')}>Open manage</button>
-      {page === 'patients' ? <PatientsPage /> : page === 'imports' ? <ImportsPage /> : <PatientsManagePage />}</>
+    return <><button type="button" onClick={() => setPage('imports')}>Open imports</button><button type="button" onClick={() => setPage('patients')}>Open patients</button>
+      {page === 'patients' ? <PatientsPage /> : <ImportsPage />}</>
   }
   mockGet.mockResolvedValueOnce({ patients: [patient()] })
   render(<PhrPatientsProvider><Navigation /></PhrPatientsProvider>)
   await screen.findByText('Synthetic Profile')
   fireEvent.click(screen.getByRole('button', { name: 'Open imports' }))
   expect(screen.getByLabelText('Import into')).toHaveValue('42')
-  fireEvent.click(screen.getByRole('button', { name: 'Open manage' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open patients' }))
   expect(screen.getByText('Synthetic Profile')).toBeInTheDocument()
   expect(mockGet).toHaveBeenCalledTimes(1)
 })
@@ -201,27 +200,41 @@ it('publishes successful create and edit responses to the navbar, patient cards 
   seed({ phr: { patient_list: { patients: [patient()] } } })
   mockPost.mockResolvedValueOnce({ patient: patient({ id: 99, display_name: 'Created profile', notes: 'Created full notes' }) })
   mockPatch.mockResolvedValueOnce({ patient: patient({ display_name: 'Edited profile', notes: 'Updated full notes' }) })
-  render(<PhrPatientsProvider><PhrSidebar patientId={42} page="summary" rail={false} /><div data-testid="cards"><PatientsPage /></div><ImportsPage /><div data-testid="manage"><PatientsManagePage /></div><Consumer /></PhrPatientsProvider>)
-  const manage = within(screen.getByTestId('manage'))
-  const createForm = manage.getByRole('button', { name: 'Add Profile' }).closest('form')!
-  fireEvent.change(within(createForm).getByLabelText('Display name or nickname *'), { target: { value: 'Created profile' } })
-  fireEvent.change(within(createForm).getByLabelText('Real names'), { target: { value: 'Jane Quincy Doe\n\n  Janie Doe ' } })
-  expect(within(createForm).getByLabelText('Real names')).toHaveValue('Jane Quincy Doe\n\n  Janie Doe ')
-  fireEvent.submit(createForm)
+  const onPatientSelect = jest.fn()
+  render(<PhrPatientsProvider><PhrSidebar patientId={42} page="summary" rail={false} /><div data-testid="cards"><PatientsPage onPatientSelect={onPatientSelect} /></div><ImportsPage /><Consumer /></PhrPatientsProvider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Add patient' }))
+  const createDialog = await screen.findByRole('dialog', { name: 'Add patient' })
+  fireEvent.change(within(createDialog).getByLabelText('Name *'), { target: { value: 'Created profile' } })
+  fireEvent.click(within(createDialog).getByRole('button', { name: /More details/ }))
+  const names = within(createDialog).getByLabelText('Names on documents')
+  fireEvent.change(names, { target: { value: 'Jane Quincy Doe' } })
+  fireEvent.keyDown(names, { key: 'Enter' })
+  // A name still being typed is kept when the field loses focus, as it does on Save.
+  fireEvent.change(names, { target: { value: '  Janie Doe ' } })
+  fireEvent.blur(names)
+  expect(within(createDialog).getByRole('button', { name: 'Remove Janie Doe' })).toBeInTheDocument()
+  fireEvent.click(within(createDialog).getByRole('button', { name: 'Add and open record' }))
   await waitFor(() => expect(within(screen.getByTestId('cards')).getByText('Created profile')).toBeInTheDocument())
   expect(mockPost).toHaveBeenCalledWith('/api/phr/patients', expect.objectContaining({ real_names: ['Jane Quincy Doe', 'Janie Doe'] }))
+  // Adding a patient opens their record.
+  expect(onPatientSelect).toHaveBeenCalledWith(99, undefined)
   expect(screen.getByRole('option', { name: 'Created profile' })).toBeInTheDocument()
   expect(snapshot().patients.find((item) => item.id === 99)?.notes).toBe('Created full notes')
-  fireEvent.click(manage.getAllByTitle('Edit')[0]!)
-  const editForm = manage.getByRole('button', { name: 'Save' }).closest('form')!
-  expect(within(editForm).getByLabelText('Notes')).toHaveValue('Full profile notes')
-  fireEvent.change(within(editForm).getByLabelText('Display name or nickname *'), { target: { value: 'Edited profile' } })
-  fireEvent.submit(editForm)
+
+  fireEvent.click(within(screen.getByTestId('cards')).getByRole('button', { name: 'More actions for Synthetic Profile' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit profile' }))
+  const editDialog = await screen.findByRole('dialog', { name: 'Edit profile' })
+  expect(within(editDialog).getByLabelText('Notes')).toHaveValue('Full profile notes')
+  fireEvent.change(within(editDialog).getByLabelText('Name *'), { target: { value: 'Edited profile' } })
+  fireEvent.click(within(editDialog).getByRole('button', { name: 'Save' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Switch patient: Edited profile' })).toBeInTheDocument())
+  expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/42', expect.objectContaining({ display_name: 'Edited profile' }))
   expect(within(screen.getByTestId('cards')).getByText('Edited profile')).toBeInTheDocument()
   expect(screen.getByRole('option', { name: 'Edited profile' })).toBeInTheDocument()
   expect(snapshot().patients.find((item) => item.id === 42)?.notes).toBe('Updated full notes')
   expect(snapshot().patients.find((item) => item.id === 42)?.access_grants).toEqual(patient().access_grants)
+  // Editing stays on Patients.
+  expect(onPatientSelect).toHaveBeenCalledTimes(1)
   expect(mockGet).not.toHaveBeenCalled()
 })
 
@@ -242,10 +255,10 @@ it('starts a fresh refresh after a pending pre-mutation request for restore and 
 })
 
 
-it.each(['patients', 'manage', 'imports'])('recovers a failed fallback from the real %s page Retry action', async (page) => {
+it.each(['patients', 'imports'])('recovers a failed fallback from the real %s page Retry action', async (page) => {
   mockGet.mockRejectedValueOnce('Patient list unavailable').mockResolvedValueOnce({ patients: [patient()] })
   render(<PhrPatientsProvider>
-    {page === 'patients' ? <PatientsPage /> : page === 'manage' ? <PatientsManagePage /> : <ImportsPage />}
+    {page === 'patients' ? <PatientsPage onPatientSelect={() => {}} /> : <ImportsPage />}
   </PhrPatientsProvider>)
   expect(await screen.findByRole('alert')).toHaveTextContent('Patient list unavailable')
   expect(mockGet).toHaveBeenCalledTimes(1)
@@ -280,11 +293,12 @@ it('keeps a failed initial list retryable after a successful profile creation', 
   mockGet.mockRejectedValueOnce('Patient list unavailable')
     .mockResolvedValueOnce({ patients: [patient(), patient({ id: 99, display_name: 'Created Profile' })] })
   mockPost.mockResolvedValueOnce({ patient: patient({ id: 99, display_name: 'Created Profile' }) })
-  render(<PhrPatientsProvider><Consumer /><PatientsManagePage /></PhrPatientsProvider>)
+  render(<PhrPatientsProvider><Consumer /><PatientsPage onPatientSelect={() => {}} /></PhrPatientsProvider>)
   expect(await screen.findByRole('alert')).toHaveTextContent('Patient list unavailable')
-  const createForm = screen.getByRole('button', { name: 'Add Profile' }).closest('form')!
-  fireEvent.change(within(createForm).getByLabelText('Display name or nickname *'), { target: { value: 'Created Profile' } })
-  fireEvent.submit(createForm)
+  fireEvent.click(screen.getByRole('button', { name: 'Add patient' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Add patient' })
+  fireEvent.change(within(dialog).getByLabelText('Name *'), { target: { value: 'Created Profile' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add and open record' }))
   await screen.findByText('Created Profile')
   expect(snapshot().loaded).toBe(false)
   expect(snapshot().error).toBe('Patient list unavailable')
