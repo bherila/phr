@@ -1,11 +1,12 @@
 import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 
 import type { PhrPatient } from '@/phr/types'
 
 import { PatientProfileDialog } from './PatientProfileDialog'
-import { sexAtBirthOption } from './PatientProfileFields'
+import { EMPTY_PATIENT_FORM, PatientProfileFields, sexAtBirthOption } from './PatientProfileFields'
 import PatientsPage from './PatientsPage'
 import { PhrPatientsProvider } from './usePhrPatients'
 
@@ -101,6 +102,26 @@ describe('PatientProfileDialog', () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('must not be greater than 255 characters')
     expect(within(dialog).getByLabelText('Name *')).toHaveValue('Riley')
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+})
+
+describe('sex at birth', () => {
+  function Harness() {
+    const [form, setForm] = useState(EMPTY_PATIENT_FORM)
+    return <>
+      <button type="button" onClick={() => setForm({ ...EMPTY_PATIENT_FORM, display_name: 'Sam', sex_at_birth: 'X' })}>Load</button>
+      <PatientProfileFields form={form} onChange={setForm} />
+    </>
+  }
+
+  it('offers a stored value none of the choices names even when it arrives after the field first renders', () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }))
+    expect(screen.getByRole('radio', { name: 'Other: X' })).toBeChecked()
+    fireEvent.click(screen.getByRole('radio', { name: 'Female' }))
+    expect(screen.getByRole('radio', { name: 'Other: X' })).not.toBeChecked()
+    fireEvent.click(screen.getByRole('radio', { name: 'Other: X' }))
+    expect(screen.getByRole('radio', { name: 'Other: X' })).toBeChecked()
   })
 })
 

@@ -233,8 +233,11 @@ function RealNamesField({ names, onChange, disabled, error }: { names: string[],
 function SexAtBirthField({ value, onChange, disabled }: { value: string, onChange: (value: string) => void, disabled: boolean }): ReactElement {
   const name = useId()
   const selected = sexAtBirthOption(value)
-  // A value none of the choices covers is kept, and shown as its own choice, until another is picked.
-  const [other] = useState(selected === null ? value : null)
+  // A stored value none of the choices covers stays offered as its own choice after another is
+  // picked, so it can be picked back. It is remembered whenever it arrives, since the form may
+  // be filled in after this field first renders.
+  const [other, setOther] = useState<string | null>(null)
+  if (selected === null && value !== '' && other !== value) setOther(value)
 
   return (
     <fieldset className="grid gap-1.5">
