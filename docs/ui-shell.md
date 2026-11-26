@@ -405,6 +405,10 @@ route's own authorization and conflict checks.
   - Names on documents are added one at a time (Enter, Add, or leaving the field), refused
     when already listed regardless of case, and capped at the server's 20.
   - A missing name is reported on the field, not in a banner.
+- **Inside the record.** Summary's header names the patient and, under the name, what
+  identifies them: relationship, birth date with age (months under two), sex at birth and how
+  many names on documents. Someone who can manage the record has Edit profile there, which opens
+  the same dialog, and an owner has the card's other actions in a ⋯ menu beside it.
 - **Needs your attention.** Below the cards, across patients: records ready to review, EHI
   exports and finished AI extractions with proposals to review, and AI extractions and EHI
   uploads that failed in the last 30 days. Ready items come first and link to the patient's
