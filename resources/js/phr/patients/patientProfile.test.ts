@@ -28,7 +28,7 @@ describe('ageOn', () => {
 
 describe('profileFacts', () => {
   it('says what identifies the patient, in a stable order', () => {
-    expect(profileFacts(patient({ relationship: 'Child', birth_date: '2016-04-09', sex_at_birth: 'M', real_names: ['RIVERA, SAM', 'Samuel Rivera'] }), new Date(2026, 10, 26)))
+    expect(profileFacts(patient({ relationship: 'Child', birth_date: '2016-04-09', sex_at_birth: 'M', real_names: ['RIVERA, SAM', 'Samuel Rivera'] }), new Date(2026, 10, 26))) // sensitive-scan-ignore: synthetic fixture
       .toEqual(['Child', 'born 2016-04-09 (10 y)', 'Male', '2 names on documents'])
   })
 

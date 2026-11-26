@@ -23,7 +23,7 @@ jest.mock('@/phr/review/reviewSummary', () => ({
 
 function patient(overrides: Partial<PhrPatient> = {}): PhrPatient {
   return {
-    id: 7, owner_user_id: 1, display_name: 'Sam Rivera', relationship: 'Child', birth_date: '2016-04-09', sex_at_birth: 'Male', notes: null,
+    id: 7, owner_user_id: 1, display_name: 'Sam Rivera', relationship: 'Child', birth_date: '2016-04-09', sex_at_birth: 'Male', notes: null, // sensitive-scan-ignore: synthetic fixture
     real_names: ['RIVERA, SAM'], archived_at: null, created_at: null, updated_at: null, access_level: 'owner', can_manage: true, can_share: true, access_grants: [],
     ...overrides,
   }
