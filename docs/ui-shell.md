@@ -134,6 +134,15 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
     Approve and Reject in a bar (`RecordReviewBar`). **(shipped)** A list and its detail load
     their own copies of a record, so each says when it changed one (`recordChanges.ts`) and the
     other reloads. **(shipped)**
+  - **Adding, editing and deleting never move the list.** Add and Edit open the record's form in
+    a dialog over the page (`RecordFormDialog`), from the list or from the record's detail, and
+    a click outside it does not discard what was typed. A problem is reported under its field in
+    the form's own words ("Enter the condition's name."), with focus on the first one, and a
+    refused save is shown inside the dialog, which keeps what was typed. A new record opens in
+    the detail once saved. Delete asks in a dialog (`ConfirmDeleteDialog`) that names the record
+    and stays open with the reason if the delete is refused. Conditions, Immunizations,
+    Medications and Fills work this way. **(shipped)** Allergies, Vitals, Visits and Procedures
+    still add or edit in place. **(planned)**
 - **Loading.** Nothing moves when data arrives. **(shipped)**
   - On the first load a record list renders skeleton rows in its real columns and row classes
     (8, or the expected count), with `aria-busy="true"` on the region, one visually hidden live

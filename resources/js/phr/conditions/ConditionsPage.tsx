@@ -1,28 +1,26 @@
 import { Activity, CheckCircle2, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
-import type { FormEvent } from 'react'
 import { useMemo, useState } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { formatDate } from '@/lib/dateFormat'
+import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
-import { compactPayload, zodErrorMessage } from '@/phr/shared'
+import { compactPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrCondition,
   type PhrConditionFormData,
-  PhrConditionFormSchema,
   PhrConditionResponseSchema,
   PhrConditionsResponseSchema,
 } from '@/phr/types'
 
-const SELECT_CLASS = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm'
+import { ConditionFormDialog, conditionFormFromRecord, conditionPayload, EMPTY_CONDITION_FORM } from './conditionForm'
 
 const STATUS_CLASS: Record<string, string> = {
   active: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
@@ -33,53 +31,6 @@ const STATUS_CLASS: Record<string, string> = {
   resolved: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
 }
 
-const CONDITION_STATUSES = [
-  { value: 'active', label: 'Active' },
-  { value: 'recurrence', label: 'Recurrence' },
-  { value: 'relapse', label: 'Relapse' },
-  { value: 'inactive', label: 'Inactive' },
-  { value: 'remission', label: 'Remission' },
-  { value: 'resolved', label: 'Resolved' },
-] as const
-
-const VERIFICATION_STATUSES = [
-  { value: 'confirmed', label: 'Confirmed' },
-  { value: 'unconfirmed', label: 'Unconfirmed' },
-  { value: 'provisional', label: 'Provisional' },
-  { value: 'differential', label: 'Differential' },
-  { value: 'refuted', label: 'Refuted' },
-  { value: 'entered_in_error', label: 'Entered in Error' },
-] as const
-
-const SEVERITY_OPTIONS = [
-  { value: '', label: 'Not set' },
-  { value: 'mild', label: 'Mild' },
-  { value: 'moderate', label: 'Moderate' },
-  { value: 'severe', label: 'Severe' },
-] as const
-
-const EMPTY_FORM: PhrConditionFormData = {
-  name: '',
-  icd10_code: '',
-  snomed_code: '',
-  onset_date: '',
-  abated_date: '',
-  clinical_status: 'active',
-  verification_status: 'confirmed',
-  severity: '',
-  notes: '',
-}
-
-interface ConditionFormFieldsProps {
-  form: PhrConditionFormData
-  onChange: (form: PhrConditionFormData) => void
-}
-
-interface AddFormProps {
-  busy: boolean
-  onSubmit: (form: PhrConditionFormData) => Promise<boolean>
-}
-
 interface ConditionsTableProps {
   loading?: boolean
   title: string
@@ -87,45 +38,13 @@ interface ConditionsTableProps {
   conditions: PhrCondition[]
   emptyMessage: string
   canManage: boolean
-  editingId: number | null
-  deletingId: number | null
-  editForm: PhrConditionFormData
-  setEditForm: (form: PhrConditionFormData) => void
   onStartEdit: (condition: PhrCondition) => void
-  onCancelEdit: () => void
-  onSaveEdit: (conditionId: number) => Promise<void>
   onStartDelete: (conditionId: number) => void
-  onCancelDelete: () => void
-  onConfirmDelete: (conditionId: number) => Promise<void>
   onMarkResolved: (condition: PhrCondition) => Promise<void>
   onReview: (conditionId: number, decision: PhrReviewDecision) => void
   isMutating: (key: string) => boolean
   onDrill?: PhrListPageProps['onDrill']
   openRowId: string | null
-}
-
-function conditionFormFromRecord(condition: PhrCondition): PhrConditionFormData {
-  return {
-    name: condition.name,
-    icd10_code: condition.icd10_code ?? '',
-    snomed_code: condition.snomed_code ?? '',
-    onset_date: condition.onset_date ?? '',
-    abated_date: condition.abated_date ?? '',
-    clinical_status: PhrConditionFormSchema.shape.clinical_status.safeParse(condition.clinical_status).success
-      ? condition.clinical_status as PhrConditionFormData['clinical_status']
-      : 'active',
-    verification_status: PhrConditionFormSchema.shape.verification_status.safeParse(condition.verification_status).success
-      ? condition.verification_status as PhrConditionFormData['verification_status']
-      : 'confirmed',
-    severity: PhrConditionFormSchema.shape.severity.safeParse(condition.severity ?? '').success
-      ? (condition.severity ?? '') as PhrConditionFormData['severity']
-      : '',
-    notes: condition.notes ?? '',
-  }
-}
-
-function conditionPayload(form: PhrConditionFormData): Record<string, unknown> {
-  return compactPayload(form)
 }
 
 function sortConditions(conditions: PhrCondition[]): PhrCondition[] {
@@ -165,109 +84,6 @@ function todayDateString(): string {
   return `${year}-${month}-${day}`
 }
 
-function ConditionFormFields({ form, onChange }: ConditionFormFieldsProps) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Name *
-        <Input value={form.name} onChange={(event) => onChange({ ...form, name: event.target.value })} required />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        ICD-10 Code
-        <Input value={form.icd10_code} onChange={(event) => onChange({ ...form, icd10_code: event.target.value })} placeholder="E11.9" />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        SNOMED Code
-        <Input value={form.snomed_code} onChange={(event) => onChange({ ...form, snomed_code: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Onset Date
-        <Input type="date" value={form.onset_date} onChange={(event) => onChange({ ...form, onset_date: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Abated Date
-        <Input type="date" value={form.abated_date} onChange={(event) => onChange({ ...form, abated_date: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Clinical Status
-        <select
-          value={form.clinical_status}
-          onChange={(event) => onChange({ ...form, clinical_status: event.target.value as PhrConditionFormData['clinical_status'] })}
-          className={SELECT_CLASS}
-        >
-          {CONDITION_STATUSES.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Verification
-        <select
-          value={form.verification_status}
-          onChange={(event) => onChange({ ...form, verification_status: event.target.value as PhrConditionFormData['verification_status'] })}
-          className={SELECT_CLASS}
-        >
-          {VERIFICATION_STATUSES.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Severity
-        <select
-          value={form.severity}
-          onChange={(event) => onChange({ ...form, severity: event.target.value as PhrConditionFormData['severity'] })}
-          className={SELECT_CLASS}
-        >
-          {SEVERITY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Notes
-        <Textarea value={form.notes} onChange={(event) => onChange({ ...form, notes: event.target.value })} />
-      </label>
-    </div>
-  )
-}
-
-function AddForm({ busy, onSubmit }: AddFormProps) {
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState<PhrConditionFormData>(EMPTY_FORM)
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-    const added = await onSubmit(form)
-    if (added) {
-      setForm(EMPTY_FORM)
-      setOpen(false)
-    }
-  }
-
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Add Condition
-      </Button>
-    )
-  }
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 text-sm font-semibold text-card-foreground">Add Condition</h2>
-      <form onSubmit={(event) => void handleSubmit(event)} className="space-y-3">
-        <ConditionFormFields form={form} onChange={setForm} />
-        <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={busy}>{busy ? 'Adding...' : 'Add'}</Button>
-          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
 function ConditionsTable({
   loading = false,
   title,
@@ -275,16 +91,8 @@ function ConditionsTable({
   conditions,
   emptyMessage,
   canManage,
-  editingId,
-  deletingId,
-  editForm,
-  setEditForm,
   onStartEdit,
-  onCancelEdit,
-  onSaveEdit,
   onStartDelete,
-  onCancelDelete,
-  onConfirmDelete,
   onMarkResolved,
   onReview,
   isMutating,
@@ -424,50 +232,6 @@ function ConditionsTable({
         headClassName="text-left text-muted-foreground"
         bodyClassName="divide-y divide-border"
         rowClassName="align-top hover:bg-muted/30"
-        renderAfterRow={(condition, colSpan) => {
-          const isSaving = isMutating(`save:${condition.id}`)
-          const isDeletingBusy = isMutating(`delete:${condition.id}`)
-          return (
-            <>
-              {editingId === condition.id && (
-                <tr>
-                  <td colSpan={colSpan} className="bg-muted/20 px-4 py-4">
-                    <form
-                      className="space-y-3"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        void onSaveEdit(condition.id)
-                      }}
-                    >
-                      <ConditionFormFields form={editForm} onChange={setEditForm} />
-                      <div className="flex gap-2">
-                        <Button type="submit" size="sm" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
-                        <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={onCancelEdit}>Cancel</Button>
-                      </div>
-                    </form>
-                  </td>
-                </tr>
-              )}
-              {deletingId === condition.id && (
-                <tr>
-                  <td colSpan={colSpan} className="bg-destructive/5 px-4 py-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm text-foreground">
-                        Delete <strong>{condition.name}</strong>? This cannot be undone.
-                      </p>
-                      <div className="flex gap-2">
-                        <Button variant="destructive" size="sm" disabled={isDeletingBusy} onClick={() => void onConfirmDelete(condition.id)}>
-                          {isDeletingBusy ? 'Deleting...' : 'Delete'}
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={onCancelDelete}>Cancel</Button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </>
-          )
-        }}
       />
     </section>
   )
@@ -476,12 +240,14 @@ function ConditionsTable({
 export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const openRowId = openRecordId(openRecord, 'condition-detail')
   const [historicalOpen, setHistoricalOpen] = useState(false)
+  // The add or edit dialog: null closed, 'new' adding, a condition editing it.
+  const [editing, setEditing] = useState<PhrCondition | 'new' | null>(null)
   const endpoint = `/api/phr/patients/${patientId}/conditions`
 
   const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrCondition, PhrConditionFormData>({
     endpoint,
-    emptyForm: EMPTY_FORM,
+    emptyForm: EMPTY_CONDITION_FORM,
     formFromRecord: conditionFormFromRecord,
     parseItem: (raw) => PhrConditionResponseSchema.parse(raw).condition,
     parseList: (raw) => {
@@ -491,7 +257,10 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
     payloadFromForm: conditionPayload,
     initialCanManage: knownCanManage,
     sortRecords: sortConditions,
+    onRecordChanged: (recordId) => recordChanged({ resource: 'conditions', patientId, recordId, origin: 'list' }),
   })
+  // The detail panel edits and deletes too; the list follows.
+  useRecordChanges('conditions', patientId, 'detail', () => void crud.reload())
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
   const firstLoad = crud.busy && crud.records.length === 0
 
@@ -504,28 +273,33 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
     [crud.records],
   )
 
-  async function addCondition(form: PhrConditionFormData): Promise<boolean> {
-    const parsed = PhrConditionFormSchema.safeParse(form)
-    if (!parsed.success) {
-      crud.setError(zodErrorMessage(parsed.error))
-      return false
-    }
-
-    return (await crud.addRecord(parsed.data)) !== null
+  function openEditor(target: PhrCondition | 'new'): void {
+    crud.setError(null)
+    setEditing(target)
   }
 
-  async function saveCondition(conditionId: number): Promise<void> {
-    const parsed = PhrConditionFormSchema.safeParse(crud.editForm)
-    if (!parsed.success) {
-      crud.setError(zodErrorMessage(parsed.error))
-      return
-    }
-
-    const updated = await crud.patchRecord(conditionId, conditionPayload(parsed.data))
-    if (updated) {
-      crud.cancelEdit()
-    }
+  function closeEditor(): void {
+    crud.setError(null)
+    setEditing(null)
   }
+
+  async function saveCondition(form: PhrConditionFormData): Promise<boolean> {
+    if (editing === null) return false
+    if (editing === 'new') {
+      const added = await crud.addRecord(form)
+      if (!added) return false
+      closeEditor()
+      // A new condition opens, so its detail shows what was saved.
+      onDrill?.({ id: 'condition-detail', instance: String(added.id) })
+      return true
+    }
+    const updated = await crud.patchRecord(editing.id, conditionPayload(form))
+    if (!updated) return false
+    closeEditor()
+    return true
+  }
+
+  const deleting = crud.deletingId === null ? null : crud.records.find((condition) => condition.id === crud.deletingId) ?? null
 
   async function markResolved(condition: PhrCondition): Promise<void> {
     await crud.patchRecord(
@@ -553,7 +327,7 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
         </div>
       </div>
 
-      {crud.error && (
+      {crud.error && editing === null && deleting === null && (
         <div role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {crud.error}
         </div>
@@ -561,7 +335,10 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
 
       {crud.canManage && (
         <div className="mb-6 flex flex-wrap items-start gap-2">
-          <AddForm busy={crud.isMutating('add')} onSubmit={addCondition} />
+          <Button type="button" size="sm" variant="outline" onClick={() => openEditor('new')}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add condition
+          </Button>
           <Button type="button" size="sm" variant="outline" onClick={() => onDrill?.({ id: 'documents' })}>
             Import via GenAI
           </Button>
@@ -583,16 +360,8 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
             conditions={activeConditions}
             emptyMessage="No active problems recorded."
             canManage={crud.canManage}
-            editingId={crud.editingId}
-            deletingId={crud.deletingId}
-            editForm={crud.editForm}
-            setEditForm={crud.setEditForm}
-            onStartEdit={crud.startEdit}
-            onCancelEdit={crud.cancelEdit}
-            onSaveEdit={saveCondition}
-            onStartDelete={crud.startDelete}
-            onCancelDelete={crud.cancelDelete}
-            onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
+            onStartEdit={openEditor}
+            onStartDelete={(conditionId) => { crud.setError(null); crud.startDelete(conditionId) }}
             onMarkResolved={markResolved}
             onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
             isMutating={crud.isMutating}
@@ -625,16 +394,8 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
                     conditions={historicalConditions}
                     emptyMessage="No historical conditions recorded."
                     canManage={crud.canManage}
-                    editingId={crud.editingId}
-                    deletingId={crud.deletingId}
-                    editForm={crud.editForm}
-                    setEditForm={crud.setEditForm}
-                    onStartEdit={crud.startEdit}
-                    onCancelEdit={crud.cancelEdit}
-                    onSaveEdit={saveCondition}
-                    onStartDelete={crud.startDelete}
-                    onCancelDelete={crud.cancelDelete}
-                    onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
+                    onStartEdit={openEditor}
+                    onStartDelete={(conditionId) => { crud.setError(null); crud.startDelete(conditionId) }}
                     onMarkResolved={markResolved}
                     onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
                     isMutating={crud.isMutating}
@@ -647,6 +408,24 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
           )}
         </div>
       )}
+      {editing !== null && (
+        <ConditionFormDialog
+          condition={editing === 'new' ? null : editing}
+          busy={crud.isMutating('add') || (editing !== 'new' && crud.isMutating(`save:${editing.id}`))}
+          error={crud.error}
+          onSubmit={saveCondition}
+          onClose={closeEditor}
+        />
+      )}
+      <ConfirmDeleteDialog
+        open={deleting !== null}
+        title="Delete this condition?"
+        description={<><strong>{deleting?.name}</strong> will be removed from this record. You can't undo this.</>}
+        busy={deleting !== null && crud.isMutating(`delete:${deleting.id}`)}
+        error={deleting !== null ? crud.error : null}
+        onConfirm={() => { if (deleting) void crud.deleteRecord(deleting.id) }}
+        onCancel={() => { crud.setError(null); crud.cancelDelete() }}
+      />
     </div>
   )
 }

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
 import { displayUnits } from '@/lib/measureUnits'
 import { cn } from '@/lib/utils'
+import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { ReviewActions } from '@/phr/clinical/review'
@@ -217,7 +218,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
             disabled={busyFor(medication)}
             actions={[
               { label: 'Edit', onSelect: () => crud.startEdit(medication) },
-              { label: 'Delete', destructive: true, onSelect: () => crud.startDelete(medication.id) },
+              { label: 'Delete', destructive: true, onSelect: () => { crud.setError(null); crud.startDelete(medication.id) } },
             ]}
           />
         </div>
@@ -226,6 +227,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
   }
 
   const editing = crud.editingId === null ? undefined : crud.records.find((medication) => medication.id === crud.editingId)
+  const deletingMedication = crud.deletingId === null ? null : crud.records.find((medication) => medication.id === crud.deletingId) ?? null
 
   return (
     <div className="flex flex-col gap-3">
@@ -244,7 +246,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
       <MedicationCategoryFilters value={categoryFilter} counts={firstLoad ? null : categoryCounts} onSelect={selectCategory} />
       <MedicationStatusFilters value={statusFilter} counts={firstLoad ? null : counts} onSelect={selectStatus} />
 
-      {crud.error && !addForm && !editing && (
+      {crud.error && !addForm && !editing && !deletingMedication && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {crud.error}
         </div>
@@ -295,32 +297,18 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
             headClassName="text-left text-muted-foreground"
             bodyClassName="divide-y divide-border"
             rowClassName="align-top hover:bg-muted/30"
-            renderAfterRow={(medication, colSpan) => {
-              if (crud.deletingId !== medication.id) return null
-              const deleting = crud.isMutating(`delete:${medication.id}`)
-              return (
-                <tr>
-                  <td colSpan={colSpan} className="bg-destructive/5 px-4 py-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm text-foreground">
-                        Delete <strong>{medication.name}</strong>? This cannot be undone.
-                      </p>
-                      <div className="flex gap-2">
-                        <Button variant="destructive" size="sm" disabled={deleting} onClick={() => void crud.deleteRecord(medication.id)}>
-                          {deleting ? 'Deleting…' : 'Delete'}
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" disabled={deleting} onClick={crud.cancelDelete}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )
-            }}
           />
         </section>
       )}
+      <ConfirmDeleteDialog
+        open={deletingMedication !== null}
+        title="Delete this medication?"
+        description={<><strong>{deletingMedication?.name}</strong> will be removed from this record. You can't undo this.</>}
+        busy={deletingMedication !== null && crud.isMutating(`delete:${deletingMedication.id}`)}
+        error={deletingMedication !== null ? crud.error : null}
+        onConfirm={() => { if (deletingMedication) void crud.deleteRecord(deletingMedication.id) }}
+        onCancel={() => { crud.setError(null); crud.cancelDelete() }}
+      />
     </div>
   )
 }

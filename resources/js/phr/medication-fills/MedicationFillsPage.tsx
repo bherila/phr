@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
 import { type FillColumn, saveDisplayPreferences, useDisplayPreferences } from '@/lib/displayPreferences'
+import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { MedicationSectionHeader, useMedicationCount } from '@/phr/medications/medicationSection'
@@ -15,6 +16,7 @@ import { FillFilters, type FillFilterValues, NO_FILL_FILTERS } from './FillFilte
 import { FillsTable } from './FillsTable'
 import {
   fillDrugName,
+  formatFillDate,
   type MedicationFill,
   MedicationFillResponseSchema,
   MedicationFillsResponseSchema,
@@ -96,6 +98,8 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
     }
   }
 
+  const deletingFill = crud.deletingId === null ? null : crud.records.find((fill) => fill.id === crud.deletingId) ?? null
+
   return (
     <div className="@container/fills-page flex flex-col gap-3">
       <MedicationSectionHeader
@@ -114,7 +118,7 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
         onColumnChange={setColumnShown}
       />
 
-      {crud.error && (
+      {crud.error && !deletingFill && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {crud.error}
         </div>
@@ -153,14 +157,21 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
             actions={crud.canManage ? {
               isMutating: crud.isMutating,
               onReview: (id, decision) => void crud.reviewRecord(id, decision),
-              deletingId: crud.deletingId,
-              onStartDelete: crud.startDelete,
-              onCancelDelete: crud.cancelDelete,
-              onConfirmDelete: (id) => void crud.deleteRecord(id),
+              onStartDelete: (id) => { crud.setError(null); crud.startDelete(id) },
             } : undefined}
           />
         </section>
       )}
+
+      <ConfirmDeleteDialog
+        open={deletingFill !== null}
+        title="Delete this fill?"
+        description={deletingFill && <>The <strong>{formatFillDate(deletingFill.filled_on)}</strong> fill of <strong>{fillDrugName(deletingFill)}</strong> will be removed from this record. You can't undo this.</>}
+        busy={deletingFill !== null && crud.isMutating(`delete:${deletingFill.id}`)}
+        error={deletingFill !== null ? crud.error : null}
+        onConfirm={() => { if (deletingFill) void crud.deleteRecord(deletingFill.id) }}
+        onCancel={() => { crud.setError(null); crud.cancelDelete() }}
+      />
     </div>
   )
 }

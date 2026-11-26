@@ -268,7 +268,7 @@ describe('MedicationFillsPage table', () => {
     onDrill.mockClear()
     await pickFromRowMenu('atorvastatin calcium fill 2026-10-28', 'Delete')
     expect(onDrill).not.toHaveBeenCalled()
-    expect(await screen.findByText(/This cannot be undone/)).toBeInTheDocument()
+    expect(await screen.findByRole('alertdialog', { name: 'Delete this fill?' })).toHaveTextContent(/fill of atorvastatin calcium will be removed from this record/)
   })
 
   it('opens filtered to one medication from the link on its detail', async () => {
