@@ -1,8 +1,9 @@
-import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
+import { Plus, ShieldCheck } from 'lucide-react'
 import type { FormEvent, ReactNode } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
 
-import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, RECORD_ONLY_WIDE_BLOCK, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -10,10 +11,12 @@ import { formatDate } from '@/lib/dateFormat'
 import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type FieldErrors, fieldErrorsFrom, focusFirstInvalid } from '@/phr/clinical/fieldErrors'
+import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { RecordFormDialog } from '@/phr/clinical/RecordFormDialog'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
-import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
-import { doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
+import { ReviewDot } from '@/phr/clinical/ReviewDot'
+import { codeChip } from '@/phr/clinical/ui'
+import { administrationStatusLabel, doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { numericPayload } from '@/phr/shared'
@@ -78,7 +81,7 @@ function immunizationFormFromRecord(immunization: PhrImmunization): PhrImmunizat
   }
 }
 
-function immunizationPayload(form: PhrImmunizationFormData): Record<string, unknown> {
+export function immunizationPayload(form: PhrImmunizationFormData): Record<string, unknown> {
   return numericPayload(form, ['dose_number', 'series_doses'])
 }
 
@@ -164,7 +167,7 @@ function ImmunizationFormFields({ form, onChange, errors = {} }: ImmunizationFor
   )
 }
 
-function ImmunizationFormDialog({ immunization, busy, error, onSubmit, onClose }: {
+export function ImmunizationFormDialog({ immunization, busy, error, onSubmit, onClose }: {
   immunization: PhrImmunization | null
   busy: boolean
   error: string | null
@@ -225,7 +228,9 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
     payloadFromForm: immunizationPayload,
     initialCanManage: knownCanManage,
     sortRecords: sortImmunizations,
+    onRecordChanged: (recordId) => recordChanged({ resource: 'immunizations', patientId, recordId, origin: 'list' }),
   })
+  useRecordChanges('immunizations', patientId, 'detail', () => void crud.reload())
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
   const firstLoad = crud.busy && crud.records.length === 0
   // The add or edit dialog: null closed, 'new' adding, an immunization editing it.
@@ -267,34 +272,41 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
       className: 'px-4 py-3',
       cell: (immunization) => (
         <>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium text-card-foreground">{immunization.vaccine_name}</span>
-            {reviewStatusBadge(immunization.review_status)}
+          <div className="flex items-start gap-2">
+            <span className="shrink-0 pt-1.5"><ReviewDot status={immunization.review_status} /></span>
+            <span className="font-medium text-card-foreground [overflow-wrap:anywhere]">{immunization.vaccine_name}</span>
           </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {codeChip('CVX', immunization.cvx_code)}
-            {immunization.manufacturer && (
-              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                {immunization.manufacturer}
-              </span>
-            )}
-            {immunization.lot_number && (
-              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                Lot {immunization.lot_number}
-              </span>
-            )}
+          <div className={`${RECORD_ONLY_BELOW_WIDE} mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]`}>
+            <span className={RECORD_ONLY_BELOW_MEDIUM}>{formatDate(immunization.administered_on) || 'Date not recorded'} · </span>
+            {doseLabel(immunization)}
+            {administrationStatusLabel(immunization.administration_status) && <> · {administrationStatusLabel(immunization.administration_status)}</>}
           </div>
-          {immunization.notes && <p className="mt-2 text-xs text-muted-foreground">{immunization.notes}</p>}
+          <div className={RECORD_ONLY_WIDE_BLOCK}>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {codeChip('CVX', immunization.cvx_code)}
+              {immunization.manufacturer && (
+                <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {immunization.manufacturer}
+                </span>
+              )}
+              {immunization.lot_number && (
+                <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  Lot {immunization.lot_number}
+                </span>
+              )}
+            </div>
+            {immunization.notes && <p className="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">{immunization.notes}</p>}
+          </div>
         </>
       ),
     },
-    { id: 'administered', header: 'Administered', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (immunization) => formatDate(immunization.administered_on) || 'Not recorded' },
+    { id: 'administered', header: 'Administered', fit: true, showFrom: 'medium', headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground [overflow-wrap:anywhere]', cell: (immunization) => formatDate(immunization.administered_on) || 'Not recorded' },
     {
       id: 'dose',
       header: 'Dose',
-      fit: true,
+      showFrom: 'wide',
       headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3 text-muted-foreground',
+      className: 'px-4 py-3 text-muted-foreground [overflow-wrap:anywhere]',
       cell: (immunization) => (
         <>
           <div>{doseLabel(immunization)}</div>
@@ -304,9 +316,10 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
     },
     {
       id: 'facility',
+      showFrom: 'wide',
       header: 'Facility',
       headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3 text-muted-foreground',
+      className: 'px-4 py-3 text-muted-foreground [overflow-wrap:anywhere]',
       cell: (immunization) => (
         <>
           <div>{immunization.facility_name ?? 'Not recorded'}</div>
@@ -319,6 +332,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
     columns.push({
       id: 'actions',
       header: 'Actions',
+      showFrom: 'wide',
       fit: true,
       headerClassName: 'px-4 py-3 font-medium text-right',
       className: 'px-4 py-3',
@@ -331,29 +345,14 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
             disabled={busyFor(immunization)}
             onReview={(decision) => void crud.reviewRecord(immunization.id, decision)}
           />
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            title={`Edit ${immunization.vaccine_name}`}
-            aria-label={`Edit ${immunization.vaccine_name}`}
+          <RowActionsMenu
+            label={immunization.vaccine_name}
             disabled={busyFor(immunization)}
-            onClick={() => openEditor(immunization)}
-          >
-            <Pencil className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            className="text-destructive hover:text-destructive"
-            title={`Delete ${immunization.vaccine_name}`}
-            aria-label={`Delete ${immunization.vaccine_name}`}
-            disabled={busyFor(immunization)}
-            onClick={() => { crud.setError(null); crud.startDelete(immunization.id) }}
-          >
-            <Trash2 className="size-4" />
-          </Button>
+            actions={[
+              { label: 'Edit', onSelect: () => openEditor(immunization) },
+              { label: 'Delete', destructive: true, onSelect: () => { crud.setError(null); crud.startDelete(immunization.id) } },
+            ]}
+          />
         </div>
       ),
     })

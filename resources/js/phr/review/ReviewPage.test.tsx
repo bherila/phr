@@ -91,7 +91,7 @@ describe('ReviewPage', () => {
     expect(within(imported).getByText(/parsed by PHR, no AI/)).toBeInTheDocument()
     expect(within(imported).getByRole('button', { name: 'Approve 2 selected' })).toBeEnabled()
     expect(within(imported).getByRole('link', { name: 'Open Synthetic rhinitis' })).toHaveAttribute('href', `/phr/patient/${PATIENT}/conditions/11`)
-    expect(within(imported).getByText('Updates existing')).toBeInTheDocument()
+    expect(within(imported).getAllByText('Updates existing')).toHaveLength(2)
 
     const extracted = section('AI extraction')
     expect(within(extracted).getByText('AI-read: check against the document')).toBeInTheDocument()
@@ -103,8 +103,28 @@ describe('ReviewPage', () => {
     expect(within(exported).getByRole('checkbox', { name: 'Select Synthetic vaccine B' })).not.toBeChecked()
     expect(within(exported).getByRole('checkbox', { name: 'Select Synthetic vaccine A' })).toBeChecked()
     expect(within(exported).getByRole('button', { name: 'Approve 2 selected' })).toBeInTheDocument()
-    expect(within(exported).getByText('Lot number L1 → L2')).toBeInTheDocument()
+    expect(within(exported).getAllByText('Lot number L1 → L2')).toHaveLength(2)
     expect(within(exported).getByRole('link', { name: 'Compare Synthetic vaccine B' })).toHaveAttribute('href', `/phr/imports?patient_id=${PATIENT}&ehi_package=9`)
+  })
+
+  it('uses the list width while keeping one workflow action and every selectable checkbox reachable', async () => {
+    mockGet.mockResolvedValue(queue([ccda, ai, export_]))
+    render(<ReviewPage patientId={PATIENT} />)
+    const imported = await screen.findByRole('region', { name: 'C-CDA import · visit-summary.xml' })
+    const table = within(imported).getByRole('table')
+    expect(table).not.toHaveClass('min-w-[760px]')
+    expect(table.parentElement).toHaveClass('@container/record-list')
+    expect(within(table).getByRole('columnheader', { name: 'Section' })).toHaveClass('hidden', '@[960px]/record-list:table-cell')
+    expect(within(table).getByRole('columnheader', { name: 'Change' })).toHaveClass('hidden', '@[560px]/record-list:table-cell')
+    const action = within(table).getByRole('link', { name: 'Open Synthetic rhinitis' })
+    expect(action.closest('td')).not.toHaveClass('hidden')
+    expect(within(table).getAllByRole('link', { name: 'Open Synthetic rhinitis' })).toHaveLength(1)
+    expect(within(table).getByRole('checkbox', { name: 'Select Synthetic rhinitis' })).toBeChecked()
+    const summary = within(table).getAllByText('Updates existing').find((element) => element.parentElement?.className.includes('@[560px]/record-list:hidden'))
+    expect(summary).toBeDefined()
+    const extracted = section('AI extraction')
+    expect(within(extracted).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(extracted).getByRole('button', { name: 'Review Synthetic amoxicillin' }).closest('td')).not.toHaveClass('hidden')
   })
 
   it('confirms the count, batches clinical decisions, and reports refusals per row', async () => {
@@ -172,7 +192,7 @@ describe('ReviewPage', () => {
     expect(screen.getByRole('radio', { name: 'By section' })).toHaveAttribute('aria-checked', 'true')
     const immunizations = section('Immunizations')
     expect(within(immunizations).getAllByRole('row')).toHaveLength(4)
-    expect(within(immunizations).getAllByText('EHI export')).toHaveLength(3)
+    expect(within(immunizations).getAllByText('EHI export')).toHaveLength(6)
     expect(section('Conditions')).toBeInTheDocument()
   })
 
@@ -289,7 +309,7 @@ describe('ReviewPage possible duplicates and EOBs', () => {
 
     const exported = await screen.findByRole('region', { name: /EHI export/ })
     expect(within(exported).getByRole('checkbox', { name: 'Select Telephone' })).not.toBeChecked()
-    expect(within(exported).getByText(/approve it only if you want it as a visit/)).toBeInTheDocument()
+    expect(within(exported).getAllByText(/approve it only if you want it as a visit/)).toHaveLength(2)
     expect(within(exported).getByRole('checkbox', { name: 'Select Office Visit' })).toBeChecked()
   })
 
@@ -299,7 +319,7 @@ describe('ReviewPage possible duplicates and EOBs', () => {
 
     const agent = await screen.findByRole('region', { name: 'Agent' })
     expect(within(agent).getByText('Possible duplicate of a fill already in the record.')).toBeInTheDocument()
-    expect(within(agent).getByText('Possible duplicate')).toBeInTheDocument()
+    expect(within(agent).getAllByText('Possible duplicate')).toHaveLength(2)
     expect(within(agent).getByRole('checkbox', { name: 'Select Synthetic atorvastatin' })).not.toBeChecked()
     expect(within(agent).getByRole('checkbox', { name: 'Select Synthetic rhinitis' })).toBeChecked()
 
@@ -399,7 +419,7 @@ describe('ReviewPage claims to match', () => {
 
     const section = await screen.findByRole('region', { name: 'Insurance claims to match' })
     expect(within(section).getByText('A pharmacy claim on this date may belong to this fill.')).toBeInTheDocument()
-    expect(within(section).getByText('Confirmed; only its insurance claim is unsettled')).toBeInTheDocument()
+    expect(within(section).getAllByText('Confirmed; only its insurance claim is unsettled')).toHaveLength(2)
     expect(within(section).queryByRole('button', { name: 'Reject all' })).not.toBeInTheDocument()
     expect(within(section).queryByRole('button', { name: /^Approve/ })).not.toBeInTheDocument()
   })

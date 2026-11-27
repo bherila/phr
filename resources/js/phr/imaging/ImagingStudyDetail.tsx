@@ -1,8 +1,9 @@
-import { Box, ExternalLink, Film, Loader2 } from 'lucide-react'
+import { Box, Download, ExternalLink, Film, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
+import { formatBytes } from '@/lib/utils'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import {
@@ -35,17 +36,23 @@ function openExplore3d(patientId: number, seriesId: number): void {
   window.open(`/phr/patient/${patientId}/imaging/series/${seriesId}/explore-3d`, '_blank', 'noopener,noreferrer')
 }
 
-export default function ImagingStudyDetail({ patientId, recordId }: ImagingStudyDetailProps) {
+export default function ImagingStudyDetail(props: ImagingStudyDetailProps) {
+  return <ImagingStudyRecord key={`${props.patientId}:${props.recordId}`} {...props} />
+}
+
+function ImagingStudyRecord({ patientId, recordId }: ImagingStudyDetailProps) {
   const [study, setStudy] = useState<PhrDicomStudy | null>(null)
   const [series, setSeries] = useState<PhrDicomViewerSeries[]>([])
   const [busy, setBusy] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [viewerError, setViewerError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setBusy(true)
     setNotFound(false)
     setError(null)
+    setViewerError(null)
     try {
       const [studyResult, viewerResult] = await Promise.all([
         fetchPhrDetail(
@@ -55,7 +62,10 @@ export default function ImagingStudyDetail({ patientId, recordId }: ImagingStudy
         fetchPhrDetail(
           `/api/phr/patients/${patientId}/dicom/studies/${recordId}/viewer-json`,
           PhrDicomViewerResponseSchema,
-        ),
+        ).catch((caught: unknown) => {
+          setViewerError(errorMessage(caught))
+          return { data: null, notFound: false }
+        }),
       ])
       if (studyResult.notFound || !studyResult.data) {
         setNotFound(true)
@@ -104,26 +114,32 @@ export default function ImagingStudyDetail({ patientId, recordId }: ImagingStudy
     { label: 'Modality', value: study.modalities },
     { label: 'Study Date', value: formatDate(study.study_date) },
     { label: 'Accession #', value: study.accession_number },
-    { label: 'Series', value: String(series.length) },
-    { label: 'Images', value: String(series.reduce((sum, s) => sum + s.instances.length, 0)) },
+    { label: 'Series', value: viewerError ? 'Unavailable' : String(series.length) },
+    { label: 'Images', value: viewerError ? 'Unavailable' : String(series.reduce((sum, s) => sum + s.instances.length, 0)) },
+    { label: 'Stored study', value: `${study.series_count} series · ${study.instance_count} images` },
+    { label: 'Size', value: formatBytes(study.file_size_bytes) },
   ]
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-foreground">{study.description || 'DICOM Study'}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="min-w-0 break-words [overflow-wrap:anywhere] text-base font-semibold text-foreground">{study.description || 'DICOM Study'}</h2>
+        <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => openInOhifViewer(patientId, recordId)}>
           <ExternalLink className="size-4" />
           Open Viewer
         </Button>
+        <Button asChild variant="outline" size="sm"><a href={`/api/phr/patients/${patientId}/dicom/studies/${recordId}/download`} target="_blank" rel="noopener noreferrer"><Download className="size-4" />Download ZIP</a></Button>
+        </div>
       </div>
 
+      {viewerError && <p role="status" className="text-sm text-muted-foreground">Viewer data could not be loaded: {viewerError}</p>}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         {metaRows.map(({ label, value }) =>
           value ? (
-            <div key={label}>
+            <div key={label} className="min-w-0">
               <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-              <dd className="mt-0.5 text-foreground">{value}</dd>
+              <dd className="mt-0.5 break-words [overflow-wrap:anywhere] text-foreground">{value}</dd>
             </div>
           ) : null,
         )}
@@ -140,7 +156,7 @@ export default function ImagingStudyDetail({ patientId, recordId }: ImagingStudy
               >
                 <Film className="size-8 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">
+                  <p className="break-words [overflow-wrap:anywhere] text-sm font-medium text-foreground">
                     {s.SeriesDescription || s.Modality || `Series ${s.SeriesNumber ?? ''}`}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">

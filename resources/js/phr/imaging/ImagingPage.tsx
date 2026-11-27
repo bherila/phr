@@ -46,8 +46,8 @@ export default function ImagingPage({ patientId, onDrill, openRecord }: PhrListP
   }, [loadStudies, uploadCompletions])
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between gap-4">
+    <div className="@container/imaging-records min-w-0">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <h1 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
           <Images className="size-6 text-primary" />
           Imaging
@@ -90,18 +90,19 @@ export default function ImagingPage({ patientId, onDrill, openRecord }: PhrListP
           openRowId={openRecordId(openRecord, 'imaging-study-detail')}
           onOpen={drillOpener(onDrill, (study: PhrDicomStudy) => ({ id: 'imaging-study-detail', instance: String(study.id) }))}
           itemClassName={cn(
-            'flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between',
+            'flex flex-col gap-3 rounded-lg border border-border bg-card p-4 @[560px]/imaging-records:flex-row @[560px]/imaging-records:items-center @[560px]/imaging-records:justify-between',
             onDrill && 'transition-colors hover:border-primary/50 hover:bg-accent/40',
           )}
           renderItem={(study) => (
             <>
               <div className="min-w-0">
-                <p className="break-words font-medium text-card-foreground">{study.description || 'DICOM Study'}</p>
+                <p className="break-words [overflow-wrap:anywhere] font-medium text-card-foreground">{study.description || 'DICOM Study'}</p>
                 <p className="mt-1 break-words text-xs text-muted-foreground">
-                  {[formatDate(study.study_date), study.modalities, `${study.series_count} series`, `${study.instance_count} images`, formatBytes(study.file_size_bytes)].filter(Boolean).join(' · ')}
+                  {[formatDate(study.study_date), study.modalities].filter(Boolean).join(' · ')}
+                  <span className="hidden @[960px]/imaging-records:inline">{` · ${study.series_count} series · ${study.instance_count} images · ${formatBytes(study.file_size_bytes)}`}</span>
                 </p>
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className={cn('shrink-0 flex-wrap gap-2', onDrill ? 'hidden @[960px]/imaging-records:flex' : 'flex')}>
                 <Button type="button" variant="outline" size="sm" aria-label={`Open ${study.description || 'DICOM Study'} in the viewer`} onClick={() => openInOhifViewer(patientId, study.id)}>
                   <ExternalLink className="size-4" />
                   Viewer

@@ -1,6 +1,6 @@
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 
-import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -273,11 +273,16 @@ function reviewColumns(
       id: 'proposed',
       header: 'Proposed',
       headerClassName: 'px-3 py-2.5',
-      className: 'px-3 py-3',
+      className: 'min-w-0 px-3 py-3 wrap-anywhere',
       cell: (row) => (
         <>
           <span className="block font-semibold text-foreground">{displayUnits(row.title)}</span>
           {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{displayUnits(row.detail)}</span>}
+          <span className={`mt-0.5 block text-xs text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>{bySection ? row.source : PHR_PAGES[row.section].label}</span>
+          <span className={`mt-0.5 block text-xs text-foreground ${RECORD_ONLY_BELOW_MEDIUM}`}>
+            <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={cn('size-[7px] shrink-0 rounded-full', CHANGE[row.change].dot)} />{CHANGE[row.change].label}</span>
+            {row.changeDetail && <span className="block">{row.changeDetail}</span>}
+          </span>
           {row.flags.map((flag) => <span key={flag} className="mt-1 block text-xs text-amber-700 dark:text-amber-400">{flag}</span>)}
           {failures[row.item.key] && <span role="alert" className="mt-1 block text-xs text-destructive">{failures[row.item.key]}</span>}
         </>
@@ -286,19 +291,20 @@ function reviewColumns(
     {
       id: 'where',
       header: bySection ? 'Source' : 'Section',
-      fit: true,
+      showFrom: 'wide',
       headerClassName: 'px-3 py-2.5',
-      className: 'px-3 py-3 text-muted-foreground',
+      className: 'max-w-48 px-3 py-3 wrap-anywhere text-muted-foreground',
       cell: (row) => (bySection ? row.source : PHR_PAGES[row.section].label),
     },
     {
       id: 'change',
       header: 'Change',
+      showFrom: 'medium',
       headerClassName: 'px-3 py-2.5',
-      className: 'px-3 py-3',
+      className: 'max-w-64 px-3 py-3 wrap-anywhere',
       cell: (row) => (
         <>
-          <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-foreground">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
             <span aria-hidden="true" className={cn('size-[7px] rounded-full', CHANGE[row.change].dot)} />
             {CHANGE[row.change].label}
           </span>
@@ -311,9 +317,9 @@ function reviewColumns(
       header: <span className="sr-only">Actions</span>,
       fit: true,
       headerClassName: 'px-4 py-2.5 md:pr-5',
-      className: 'px-4 py-2 text-right md:pr-5',
+      className: 'px-2 py-2 text-right @[560px]/record-list:px-4',
       cell: (row) => (
-        <>
+        <div className="flex flex-col items-end gap-1 @[960px]/record-list:flex-row">
           {row.action && (
             <Button asChild size="sm" variant="outline">
               <a href={row.action.href} aria-label={`${row.action.label} ${row.title}`}>{row.action.label}</a>
@@ -324,7 +330,7 @@ function reviewColumns(
               {expanded.has(row.item.key) ? 'Hide' : 'Review'}
             </Button>
           )}
-        </>
+        </div>
       ),
     },
   ]
@@ -486,7 +492,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
       )}
 
       {queue === null && !loadError && (
-        <section aria-label="Waiting for review" className="overflow-hidden rounded-xl border border-border bg-card">
+        <section aria-label="Waiting for review" className="min-w-0 rounded-xl border border-border bg-card wrap-anywhere">
           <RecordTable
             label="Waiting for review"
             loading
@@ -494,7 +500,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
             rows={[]}
             rowId={(row: ReviewRow) => row.item.key}
             columns={reviewColumns(bySection, {}, new Set(), () => undefined)}
-            tableClassName="w-full min-w-[760px] border-collapse text-sm"
+            tableClassName="w-full border-collapse text-sm"
             headClassName="text-left text-xs font-semibold text-muted-foreground"
             rowClassName="border-t border-border align-top"
           />
@@ -515,7 +521,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
         const headingId = `review-group-${group.key.replaceAll(/[^a-z0-9]+/gi, '-')}`
         const allChecked = batchable.length > 0 && selected.length === batchable.length
         return (
-          <section key={group.key} aria-labelledby={headingId} className="overflow-hidden rounded-xl border border-border bg-card">
+          <section key={group.key} aria-labelledby={headingId} className="min-w-0 rounded-xl border border-border bg-card wrap-anywhere">
             <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-4 md:px-5">
               <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-1.5">
                 <h2 id={headingId} className="text-base font-semibold text-foreground">{group.title}</h2>
@@ -552,7 +558,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
               columns={reviewColumns(bySection, failures, expanded, toggleExpanded)}
               onOpen={(row) => openReviewRow(row, toggleExpanded)}
               className="border-t border-border"
-              tableClassName="w-full min-w-[760px] border-collapse text-sm"
+              tableClassName="w-full border-collapse text-sm"
               headClassName="text-left text-xs font-semibold text-muted-foreground"
               rowClassName="border-t border-border align-top"
               selection={{

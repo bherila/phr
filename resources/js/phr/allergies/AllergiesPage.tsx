@@ -2,12 +2,13 @@ import { AlertTriangle, ChevronDown, ChevronRight, Info, Plus } from 'lucide-rea
 import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
-import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_WIDE_BLOCK, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import type { StatusTone } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
-import { codeChip, labelize, reviewStatusBadge, statusBadge } from '@/phr/clinical/ui'
+import { ReviewDot } from '@/phr/clinical/ReviewDot'
+import { codeChip, labelize, statusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -144,25 +145,37 @@ function AllergiesTable({
       className: 'px-4 py-3',
       cell: (allergy) => (
         <>
-          <div className="font-medium text-card-foreground">{allergy.substance}</div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {allergy.category && (
-              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                {allergy.category}
-              </span>
-            )}
-            {codeChip('RxNorm', allergy.rxnorm_code)}
-            {codeChip('SNOMED', allergy.snomed_code)}
+          <div className="flex items-start gap-2">
+            <span className="shrink-0 pt-1.5"><ReviewDot status={allergy.review_status} /></span>
+            <span className="font-medium text-card-foreground [overflow-wrap:anywhere]">{allergy.substance}</span>
           </div>
-          {allergy.notes && <p className="mt-2 text-xs text-muted-foreground">{allergy.notes}</p>}
+          <div className={`${RECORD_ONLY_BELOW_MEDIUM} mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground [overflow-wrap:anywhere] [&_span]:whitespace-normal`}>
+            <span>{allergy.reaction ?? 'Reaction not recorded'}</span>
+            {statusBadge(allergy.criticality, CRITICALITY_TONE)}
+            {statusBadge(allergy.severity, { severe: 'danger' })}
+            {statusBadge(allergy.clinical_status, STATUS_TONE)}
+          </div>
+          <div className={RECORD_ONLY_WIDE_BLOCK}>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {allergy.category && (
+                <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {allergy.category}
+                </span>
+              )}
+              {codeChip('RxNorm', allergy.rxnorm_code)}
+              {codeChip('SNOMED', allergy.snomed_code)}
+            </div>
+            {allergy.notes && <p className="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">{allergy.notes}</p>}
+          </div>
         </>
       ),
     },
     {
       id: 'reaction',
+      showFrom: 'medium',
       header: 'Reaction',
       headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3 text-muted-foreground',
+      className: 'px-4 py-3 text-muted-foreground [overflow-wrap:anywhere] [&_span]:whitespace-normal',
       cell: (allergy) => (
         <>
           <div>{allergy.reaction ?? 'Reaction not recorded'}</div>
@@ -176,13 +189,12 @@ function AllergiesTable({
     {
       id: 'status',
       header: 'Status',
-      fit: true,
+      showFrom: 'medium',
       headerClassName: 'px-4 py-3 font-medium',
       className: 'px-4 py-3',
       cell: (allergy) => (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 [overflow-wrap:anywhere] [&_span]:whitespace-normal">
           {statusBadge(allergy.clinical_status, STATUS_TONE)}
-          {reviewStatusBadge(allergy.review_status)}
           <span className="text-xs text-muted-foreground">{labelize(allergy.verification_status)}</span>
         </div>
       ),

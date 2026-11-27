@@ -361,8 +361,8 @@ describe('PHR page mounts', () => {
     render(<ImmunizationsPage patientId={PATIENT_ID} />)
 
     expect(await screen.findByText('Synthetic amount-only vaccine')).toBeInTheDocument()
-    expect(screen.getByText('0.50 mL')).toBeInTheDocument()
-    expect(screen.getByText('Dose 2 / 2')).toBeInTheDocument()
+    expect(screen.getAllByText('0.50 mL').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Dose 2 / 2').length).toBeGreaterThan(0)
     expect(screen.queryByText('Dose not recorded')).not.toBeInTheDocument()
   })
 

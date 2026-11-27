@@ -132,8 +132,8 @@ describe('LabsPage', () => {
     expect(within(panelSection).getAllByText('Basic Metabolic Panel')).toHaveLength(1)
 
     const otherSection = screen.getByRole('region', { name: 'Other lab results' })
-    expect(within(otherSection).getByText('HIV Ag/Ab Combo')).toBeInTheDocument()
-    expect(within(otherSection).getByText('HIV Antibody')).toBeInTheDocument()
+    expect(within(otherSection).getAllByText('HIV Ag/Ab Combo').length).toBeGreaterThan(0)
+    expect(within(otherSection).getAllByText('HIV Antibody').length).toBeGreaterThan(0)
     expect(within(otherSection).getByText('Panel')).toBeInTheDocument()
   })
 

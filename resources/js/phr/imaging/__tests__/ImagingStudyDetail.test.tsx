@@ -136,7 +136,8 @@ describe('ImagingStudyDetail', () => {
     await waitFor(() => expect(screen.getByText('Series 1')).toBeInTheDocument())
 
     const values = Array.from(container.querySelectorAll('dd')).map((el) => el.textContent)
-    expect(values).toEqual(['Cardiac CT', 'CT', '2026-05-17', 'ACC123', '2', '2'])
+    expect(values).toEqual(['Cardiac CT', 'CT', '2026-05-17', 'ACC123', '2', '2', '5 series · 40 images', '2.0 MB'])
+    expect(screen.getByRole('link', { name: 'Download ZIP' })).toHaveAttribute('href', '/api/phr/patients/101/dicom/studies/7001/download')
   })
 
   it('renders PhrRecordNotFound on 404', async () => {
@@ -173,4 +174,15 @@ describe('ImagingStudyDetail', () => {
       window.open = originalOpen
     }
   })
+})
+
+
+it('keeps the ZIP and stored metadata reachable if viewer data fails', async () => {
+  mockFetch.mockImplementation(async (url: string) => url.endsWith('/viewer-json')
+    ? jsonResponse({ message: 'Viewer unavailable' }, { ok: false, status: 500 }) : jsonResponse({ study: makeStudy() }))
+  render(<ImagingStudyDetail patientId={PATIENT_ID} recordId={STUDY_ID} />)
+  expect(await screen.findByRole('link', { name: 'Download ZIP' })).toHaveAttribute('href', '/api/phr/patients/101/dicom/studies/7001/download')
+  expect(screen.getByText('2 series · 12 images')).toBeInTheDocument()
+  expect(screen.getByText('2.0 MB')).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('Viewer data could not be loaded')
 })

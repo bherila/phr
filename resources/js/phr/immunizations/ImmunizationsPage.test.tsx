@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+
+import { recordChanged } from '@/phr/clinical/recordChanges'
 
 import ImmunizationsPage from './ImmunizationsPage'
 
@@ -55,7 +57,8 @@ describe('ImmunizationsPage editing', () => {
   it('edits in a dialog with the record filled in', async () => {
     mockPatch.mockResolvedValue({ immunization: immunization({ lot_number: 'L42' }) })
     render(<ImmunizationsPage patientId={2} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Tdap' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions for Tdap' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
     const dialog = await screen.findByRole('dialog', { name: 'Edit immunization' })
     expect(within(dialog).getByRole('textbox', { name: /Vaccine Name/ })).toHaveValue('Tdap')
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Lot Number' }), { target: { value: 'L42' } })
@@ -109,7 +112,8 @@ describe('Immunization dialog validation', () => {
     const notes = 'n'.repeat(10001)
     mockGet.mockResolvedValue({ immunizations: [immunization({ cvx_code: 'c'.repeat(21), notes })], can_manage: true })
     render(<ImmunizationsPage patientId={2} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Tdap' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions for Tdap' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
     const dialog = await screen.findByRole('dialog', { name: 'Edit immunization' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
     expect(mockPatch).not.toHaveBeenCalled()
@@ -122,4 +126,17 @@ describe('Immunization dialog validation', () => {
     expect(notesInput).toHaveAccessibleDescription('Notes are at most 10000 characters.')
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Notes are at most 10000 characters.')
   })
+})
+
+
+it('reloads its list after matching detail writes and ignores another patient', async () => {
+  render(<ImmunizationsPage patientId={2} />)
+  await screen.findByText('Tdap')
+  const before = mockGet.mock.calls.length
+  act(() => recordChanged({ resource: 'immunizations', patientId: 99, recordId: 5, origin: 'detail' }))
+  expect(mockGet).toHaveBeenCalledTimes(before)
+  mockGet.mockResolvedValue({ immunizations: [immunization({ vaccine_name: 'Updated synthetic vaccine' })], can_manage: true })
+  act(() => recordChanged({ resource: 'immunizations', patientId: 2, recordId: 5, origin: 'detail' }))
+  await screen.findByText('Updated synthetic vaccine')
+  expect(screen.queryByText('Tdap')).not.toBeInTheDocument()
 })

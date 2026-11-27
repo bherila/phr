@@ -106,8 +106,8 @@ describe('Conditions keyboard navigation with the detail panel', () => {
   it('opens with Enter, follows the active row with replaceState, and returns focus on Esc', async () => {
     render(<PhrShell />)
     await screen.findByRole('table', { name: 'Active Problems' })
-    expect(screen.getByRole('button', { name: 'Edit Asthma' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Delete Eczema' })).toHaveAttribute('tabindex', '-1')
+    expect(screen.getByRole('button', { name: 'More actions for Asthma' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions for Eczema' })).toHaveAttribute('tabindex', '-1')
 
     act(() => row('Asthma').focus())
     press('ArrowDown')

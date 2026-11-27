@@ -116,7 +116,8 @@ describe('Editing and deleting a condition from the list', () => {
   it('edits in a dialog, leaving the rows where they are', async () => {
     mockPatch.mockResolvedValue({ condition: createdCondition({ name: 'Asthma, mild intermittent' }) })
     render(<ConditionsPage patientId={2} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Asthma' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions for Asthma' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
     const dialog = await screen.findByRole('dialog', { name: 'Edit condition' })
     expect(screen.getAllByRole('row', { hidden: true })).toHaveLength(2)
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name *' }), { target: { value: 'Asthma, mild intermittent' } })
@@ -129,7 +130,8 @@ describe('Editing and deleting a condition from the list', () => {
   it('asks before deleting, and keeps the dialog open with the reason when the delete is refused', async () => {
     mockDelete.mockRejectedValueOnce({ message: 'This condition changed since the page loaded.' }).mockResolvedValueOnce({})
     render(<ConditionsPage patientId={2} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete Asthma' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions for Asthma' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
     const dialog = await screen.findByRole('alertdialog', { name: 'Delete this condition?' })
     expect(dialog).toHaveTextContent("Asthma will be removed from this record. You can't undo this.")
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))

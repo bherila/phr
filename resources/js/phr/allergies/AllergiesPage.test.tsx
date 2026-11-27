@@ -57,15 +57,15 @@ describe('AllergiesPage', () => {
 
   it('keeps the mounted list synchronized with detail mutations', async () => {
     render(<AllergiesPage patientId={42} />)
-    await screen.findByText('Synthetic reaction')
-    expect(screen.getByText('Pending review')).toBeInTheDocument()
+    await screen.findAllByText('Synthetic reaction')
+    expect(screen.getByRole('img', { name: 'Pending review' })).toBeInTheDocument()
 
     notifyAllergyChanged({
       action: 'updated',
       allergy: { ...ALLERGY, reaction: 'Updated synthetic reaction' },
       patientId: 42,
     })
-    await waitFor(() => expect(screen.getByText('Updated synthetic reaction')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText('Updated synthetic reaction')).toHaveLength(2))
 
     notifyAllergyChanged({ action: 'deleted', allergyId: ALLERGY.id, patientId: 42 })
     await waitFor(() => expect(screen.queryByText('Synthetic allergen')).not.toBeInTheDocument())

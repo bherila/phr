@@ -70,6 +70,7 @@ async function withoutPreload(page: Page): Promise<void> {
 test.describe.serial('PHR first-load preload', () => {
   let patientId = 0
   let conditionId = 0
+  let labId = 0
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -87,7 +88,8 @@ test.describe.serial('PHR first-load preload', () => {
     const created = await post(page, '/api/phr/patients', { display_name: `Synthetic Preload Patient ${testInfo.retry}` })
     patientId = (created.patient as { id: number }).id
     for (const analyte of ['Hemoglobin', 'Hematocrit', 'Platelets']) {
-      await post(page, `/api/phr/patients/${patientId}/lab-results`, { test_name: 'Synthetic CBC', analyte, value: '12', unit: 'g/dL' })
+      const lab = await post(page, `/api/phr/patients/${patientId}/lab-results`, { test_name: 'Synthetic CBC', analyte, value: '12', unit: 'g/dL' })
+      labId = (lab.lab_result as { id: number }).id
     }
     const condition = await post(page, `/api/phr/patients/${patientId}/conditions`, { name: 'Synthetic condition' })
     conditionId = (condition.condition as { id: number }).id
@@ -95,6 +97,7 @@ test.describe.serial('PHR first-load preload', () => {
 
   for (const view of [
     { name: 'labs', path: () => `/phr/patient/${patientId}/labs` },
+    { name: 'a lab result detail', path: () => `/phr/patient/${patientId}/labs/${labId}` },
     { name: 'a condition', path: () => `/phr/patient/${patientId}/conditions/${conditionId}` },
   ]) {
     test(`opens ${view.name} without a request for any preloaded URL`, async ({ page }) => {

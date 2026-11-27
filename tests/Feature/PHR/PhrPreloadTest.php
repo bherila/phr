@@ -54,7 +54,7 @@ final class PhrPreloadTest extends TestCase
             // The first log's entries follow from the preloaded list, so they come last.
             '/health-log' => ["{$p}/health-logs", $summary, "{$p}/health-logs/{$this->ids['log']}/entries"],
             '/labs' => ["{$p}/lab-results", "{$p}/ehi/pending"],
-            "/labs/{$this->ids['lab']}" => ["{$p}/labs/{$this->ids['lab']}", "{$p}/lab-results", "{$p}/ehi/pending"],
+            "/labs/{$this->ids['lab']}" => ["{$p}/labs/{$this->ids['lab']}", "{$p}/lab-results/{$this->ids['lab']}", "{$p}/lab-results", "{$p}/ehi/pending"],
             '/vitals' => ["{$p}/vitals"],
             "/vitals/{$this->ids['vital']}" => ["{$p}/vitals/{$this->ids['vital']}", "{$p}/vitals"],
             // A trend opens as its own page, so the list is not on screen.
