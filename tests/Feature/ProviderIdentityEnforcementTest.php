@@ -45,6 +45,10 @@ class ProviderIdentityEnforcementTest extends TestCase
     /** What the provider's status endpoint answers: a generation, or null for inactive. */
     private ?int $statusGeneration = 3;
 
+    private ?int $loginEpoch = null;
+
+    private ?int $statusEpoch = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -76,10 +80,11 @@ class ProviderIdentityEnforcementTest extends TestCase
                     'name' => 'Synthetic Bound User',
                     'email' => 'bound-user@example.test',
                     'credential_version' => $this->loginGeneration,
+                    'recovery_epoch' => $this->loginEpoch,
                 ], static fn (mixed $value): bool => $value !== null)),
                 self::STATUS_URL => Http::response($this->statusGeneration === null
                     ? ['contract_version' => 1, 'active' => false]
-                    : ['contract_version' => 1, 'active' => true, 'subject' => self::SUBJECT, 'credential_version' => $this->statusGeneration]),
+                    : ['contract_version' => 1, 'active' => true, 'subject' => self::SUBJECT, 'credential_version' => $this->statusGeneration, ...($this->statusEpoch === null ? [] : ['recovery_epoch' => $this->statusEpoch])]),
                 default => Http::response([], 404),
             };
         });
@@ -219,6 +224,42 @@ class ProviderIdentityEnforcementTest extends TestCase
         ])->assertBadRequest();
         // Refused, not consumed: only the refresh token rotated earlier is revoked.
         $this->assertSame(1, RefreshToken::query()->where('revoked', true)->count());
+    }
+
+    public function test_oauth_credentials_preserve_recovery_epochs_through_issuance_rotation_and_provider_restore(): void
+    {
+        $this->enableEnforcement();
+        $this->loginEpoch = $this->statusEpoch = 1;
+        $this->signIn()->assertRedirect('/');
+        $user = User::query()->where('oauth_subject', self::SUBJECT)->sole();
+        $client = $this->client();
+        $issued = $this->authorizeAndExchange($user, $client, signedIn: true);
+        foreach ([AuthCode::query()->sole(), Token::query()->sole(), RefreshToken::query()->sole()] as $credential) {
+            $this->assertSame(1, (int) $credential->getAttribute(ProviderIdentityTokens::EPOCH_COLUMN), $credential->getTable().' preserves its authorizing epoch');
+        }
+
+        $rotated = $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token', 'client_id' => $client->id,
+            'refresh_token' => $issued['refresh_token'],
+        ])->assertOk()->json();
+        $this->assertCount(2, Token::query()->get());
+        $this->assertCount(2, RefreshToken::query()->get());
+        foreach ([Token::class, RefreshToken::class] as $model) {
+            $this->assertSame([1, 1], $model::query()->pluck(ProviderIdentityTokens::EPOCH_COLUMN)->map(fn ($epoch): int => (int) $epoch)->all());
+        }
+
+        // A restored provider may report the same generation, but its raised epoch
+        // must end both the bearer and renewal instead of adopting the new epoch.
+        $this->statusEpoch = 2;
+        Cache::flush();
+        Auth::forgetGuards();
+        $this->withToken($rotated['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token', 'client_id' => $client->id,
+            'refresh_token' => $rotated['refresh_token'],
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->assertSame(1, RefreshToken::query()->where('revoked', true)->count(), 'A refused renewal does not consume its token.');
+        $this->assertSame(2, Token::query()->count(), 'No credential is minted under the recovered provider.');
     }
 
     public function test_with_enforcement_on_credentials_issued_before_it_are_refused(): void

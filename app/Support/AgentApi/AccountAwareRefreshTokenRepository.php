@@ -44,6 +44,9 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             $attributes[ProviderIdentityTokens::OWNER_COLUMN] = (string) $owner;
             $attributes[ProviderIdentityTokens::SUBJECT_COLUMN] = $issuedWith?->getAttribute(ProviderIdentityTokens::SUBJECT_COLUMN);
             $attributes[ProviderIdentityTokens::GENERATION_COLUMN] = $issuedWith?->getAttribute(ProviderIdentityTokens::GENERATION_COLUMN);
+            if ($model->getConnection()->getSchemaBuilder()->hasColumn($model->getTable(), ProviderIdentityTokens::EPOCH_COLUMN)) {
+                $attributes[ProviderIdentityTokens::EPOCH_COLUMN] = $issuedWith?->getAttribute(ProviderIdentityTokens::EPOCH_COLUMN);
+            }
         }
         $model->forceFill($attributes)->save();
 
