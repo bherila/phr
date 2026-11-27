@@ -22,16 +22,14 @@ export function codeChip(label: string, value: string | null): ReactElement | nu
   )
 }
 
-export function classBadge(value: string | null, classes: Record<string, string>): ReactElement | null {
+/** Clinical statuses keep their label readable; only the decorative dot carries color. */
+export function statusBadge(value: string | null, tones: Record<string, StatusTone>): ReactElement | null {
   if (!value) {
     return null
   }
 
-  return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${classes[value] ?? 'bg-muted text-muted-foreground'}`}>
-      {labelize(value)}
-    </span>
-  )
+  const tone = Object.hasOwn(tones, value) ? tones[value] ?? 'neutral' : 'neutral'
+  return <StatusDot tone={tone} label={labelize(value)} />
 }
 
 /**
