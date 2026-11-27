@@ -20,10 +20,12 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
 import { formatBytes } from '@/lib/utils'
+import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
+import { DocumentMetadataFields } from '@/phr/documents/DocumentMetadataFields'
 import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
 import { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPE_OPTIONS, documentTypeLabel, isKnownDocumentType } from '@/phr/documents/documentType'
 import { isTextDocument } from '@/phr/documents/textPreview'
@@ -144,6 +146,8 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
     }
   }, [filters, patientId])
 
+  useRecordChanges('documents', patientId, 'detail', () => { void loadDocuments() })
+
   useEffect(() => {
     void loadDocuments()
   }, [loadDocuments])
@@ -225,6 +229,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
       const raw = await fetchWrapper.patch(`/api/phr/patients/${patientId}/documents/${selectedDocument.id}`, payload)
       const updated = PhrDocumentSchema.parse((raw as { document: unknown }).document)
       setDocuments((current) => current.map((document) => (document.id === updated.id ? updated : document)))
+      recordChanged({ resource: 'documents', patientId, recordId: updated.id, origin: 'list' })
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -239,6 +244,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
       const raw = await fetchWrapper.post(`/api/phr/patients/${patientId}/documents/${document.id}/process`, {})
       const updated = PhrDocumentSchema.parse((raw as { document: unknown }).document)
       setDocuments((current) => current.map((candidate) => (candidate.id === updated.id ? updated : candidate)))
+      recordChanged({ resource: 'documents', patientId, recordId: updated.id, origin: 'list' })
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -253,6 +259,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
       // Conditional on the version loaded: a document an agent changed since is refused, not approved.
       const raw = await recordReviewDecision(`/api/phr/patients/${patientId}/documents/${document.id}`, decision, document.version)
       const reviewed = PhrDocumentSchema.parse((raw as { document: unknown }).document)
+      recordChanged({ resource: 'documents', patientId, recordId: reviewed.id, origin: 'list' })
       setDocuments((current) => current
         .map((candidate) => (candidate.id === reviewed.id ? reviewed : candidate))
         .filter((candidate) => filters.show_rejected || candidate.review_status !== 'rejected'))
@@ -270,6 +277,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
       await fetchWrapper.delete(`/api/phr/patients/${patientId}/documents/${document.id}`, {})
       void reviewStateChanged(patientId)
       setDocuments((current) => current.filter((candidate) => candidate.id !== document.id))
+      recordChanged({ resource: 'documents', patientId, recordId: document.id, origin: 'list' })
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -389,9 +397,9 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
           )}
         </aside>
 
-        <main className="min-w-0">
+        <main className="@container/document-records min-w-0">
           {busy && documents.length === 0 && (
-            <div aria-busy="true" className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3" data-testid="documents-skeleton">
+            <div aria-busy="true" className="grid grid-cols-1 gap-3 @[560px]/document-records:grid-cols-2 @[960px]/document-records:grid-cols-3" data-testid="documents-skeleton">
               <LoadingMessage>Loading documents</LoadingMessage>
               {Array.from({ length: 6 }, (_, index) => (
                 <div key={index} aria-hidden="true" className="grid min-h-64 gap-3 rounded-lg border border-border bg-card p-3">
@@ -409,7 +417,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
           )}
 
           {documents.length > 0 && viewMode === 'grid' && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 @[560px]/document-records:grid-cols-2 @[960px]/document-records:grid-cols-3">
               {documents.map((document) => (
                 <DocumentCard
                   key={document.id}
@@ -423,10 +431,10 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
 
           {documents.length > 0 && viewMode === 'list' && (
             <div className="overflow-hidden rounded-lg border border-border">
-              <div className="grid grid-cols-[minmax(0,1fr)_140px_140px_110px] gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium uppercase text-muted-foreground max-lg:hidden">
+              <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,8rem)] gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium uppercase text-muted-foreground @[560px]/document-records:grid @[960px]/document-records:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_minmax(0,10rem)_minmax(0,8rem)]">
                 <span>Document</span>
                 <span>Type</span>
-                <span>Source</span>
+                <span className="hidden @[960px]/document-records:block">Source</span>
                 <span>Observed</span>
               </div>
               <RecordList
@@ -435,19 +443,20 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                 rows={documents}
                 rowId={(document) => String(document.id)}
                 onOpen={(document) => selectDocument(document)}
-                itemClassName={(document) => `grid w-full gap-2 rounded-none px-3 py-3 text-left hover:bg-muted/30 lg:grid-cols-[minmax(0,1fr)_140px_140px_110px] lg:items-center ${document.id === selectedDocument?.id ? 'bg-accent/50' : 'bg-background'}`}
+                itemClassName={(document) => `grid w-full gap-2 rounded-none px-3 py-3 text-left hover:bg-muted/30 @[560px]/document-records:grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,8rem)] @[960px]/document-records:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_minmax(0,10rem)_minmax(0,8rem)] @[960px]/document-records:items-center ${document.id === selectedDocument?.id ? 'bg-accent/50' : 'bg-background'}`}
                 renderItem={(document) => (
                   <>
                     <span className="min-w-0">
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="block truncate text-sm font-medium text-foreground">{displayTitle(document)}</span>
+                        <span className="block min-w-0 break-words [overflow-wrap:anywhere] text-sm font-medium text-foreground">{displayTitle(document)}</span>
                         {reviewStatusBadge(document.review_status)}
                       </span>
-                      {document.summary && <span className="mt-1 block line-clamp-1 text-sm text-muted-foreground">{document.summary}</span>}
+                      <span className="mt-1 block break-words text-xs text-muted-foreground @[560px]/document-records:hidden">{[documentTypeLabel(document.document_type), formatDate(document.observed_at)].filter(Boolean).join(' · ')}</span>
+                      {document.summary && <span className="mt-1 hidden break-words [overflow-wrap:anywhere] text-sm text-muted-foreground @[960px]/document-records:block">{document.summary}</span>}
                     </span>
-                    <span className="text-sm text-muted-foreground">{documentTypeLabel(document.document_type)}</span>
-                    <span className="text-sm text-muted-foreground">{documentSourceLabel(document.source)}</span>
-                    <span className="text-sm text-muted-foreground">{formatDate(document.observed_at)}</span>
+                    <span className="hidden min-w-0 break-words [overflow-wrap:anywhere] text-sm text-muted-foreground @[560px]/document-records:block">{documentTypeLabel(document.document_type)}</span>
+                    <span className="hidden min-w-0 break-words [overflow-wrap:anywhere] text-sm text-muted-foreground @[960px]/document-records:block">{documentSourceLabel(document.source)}</span>
+                    <span className="hidden min-w-0 break-words [overflow-wrap:anywhere] text-sm text-muted-foreground @[560px]/document-records:block">{formatDate(document.observed_at)}</span>
                   </>
                 )}
               />
@@ -460,7 +469,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
             <div className="grid gap-4 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="truncate text-lg font-semibold text-card-foreground">{displayTitle(selectedDocument)}</h2>
+                  <h2 className="break-words [overflow-wrap:anywhere] text-lg font-semibold text-card-foreground">{displayTitle(selectedDocument)}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {[documentTypeLabel(selectedDocument.document_type), formatBytes(selectedDocument.byte_size), formatDate(selectedDocument.observed_at)].filter(Boolean).join(' · ')}
                   </p>
@@ -503,26 +512,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
 
               <div className="grid gap-3 border-t border-border pt-4">
                 <h3 className="text-sm font-semibold text-card-foreground">Metadata</h3>
-                <LabeledInput label="Title" value={editForm.title ?? ''} onChange={(value) => setEditForm({ ...editForm, title: value })} />
-                <LabeledSelect label="Type" value={editForm.document_type} onChange={(value) => setEditForm({ ...editForm, document_type: value })}>
-                  {!isKnownDocumentType(editForm.document_type) && (
-                    <option value={editForm.document_type}>{documentTypeLabel(editForm.document_type)}</option>
-                  )}
-                  {DOCUMENT_TYPE_OPTIONS.map((type) => (
-                    <option key={type} value={type}>{DOCUMENT_TYPE_LABELS[type]}</option>
-                  ))}
-                </LabeledSelect>
-                <LabeledInput label="Observed" type="datetime-local" value={editForm.observed_at ?? ''} onChange={(value) => setEditForm({ ...editForm, observed_at: value })} />
-                <LabeledInput label="Tags (comma-separated)" value={editForm.tags.join(', ')} onChange={(value) => setEditForm({ ...editForm, tags: splitTags(value) })} />
-                <p className="text-xs text-muted-foreground">Suggested: {DOCUMENT_TAG_SUGGESTIONS.join(', ')}</p>
-                <label className="grid gap-1 text-sm font-medium text-foreground">
-                  Summary
-                  <textarea
-                    className="min-h-24 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
-                    value={editForm.summary ?? ''}
-                    onChange={(event) => setEditForm({ ...editForm, summary: event.target.value })}
-                  />
-                </label>
+                <DocumentMetadataFields form={editForm} onChange={setEditForm} disabled={!canManage} />
                 {canManage && (
                   <div className="flex flex-wrap justify-between gap-2">
                     <Button type="button" onClick={() => void saveMetadata()} disabled={saving}>
@@ -602,7 +592,7 @@ function DocumentCard({ document, selected, onSelect }: DocumentCardProps) {
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-semibold text-card-foreground">{displayTitle(document)}</p>
+          <p className="break-words [overflow-wrap:anywhere] text-sm font-semibold text-card-foreground">{displayTitle(document)}</p>
           {reviewStatusBadge(document.review_status)}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">

@@ -17,6 +17,9 @@ jest.mock('@/components/phr/PdfViewer', () => {
   }
 })
 
+let mockCanManage = false
+jest.mock('@/phr/patients/usePhrPatients', () => ({ usePhrPatients: () => ({ patients: mockCanManage ? [{ id: 42, can_manage: true }] : [] }) }))
+
 const mockFetch = jest.fn()
 
 function makeDocument(overrides: Partial<PhrDocument> = {}): PhrDocument {
@@ -56,6 +59,7 @@ function respondWith(document: PhrDocument): void {
 
 beforeEach(() => {
   mockPdfPages = 1
+  mockCanManage = false
   mockFetch.mockReset()
   globalThis.fetch = mockFetch as unknown as typeof fetch
 })
@@ -165,7 +169,7 @@ describe('DocumentViewer', () => {
 
     const toolbar = await screen.findByRole('toolbar', { name: 'Document' })
     expect(within(toolbar).getByRole('heading', { name: 'January Labs' })).toBeInTheDocument()
-    expect(within(toolbar).getByText(/Lab Report · Manual Upload · Added 2026-01-15 · PDF · 4 pages/)).toBeInTheDocument()
+    expect(await within(toolbar).findByText(/Lab Report · Manual Upload · Added 2026-01-15 · PDF · 4 pages/)).toBeInTheDocument()
     expect(within(toolbar).getByText('Page 1 of 4')).toBeInTheDocument()
     expect(within(toolbar).getByText('150%')).toBeInTheDocument()
     expect(within(toolbar).getByRole('link', { name: 'Open in new tab' })).toHaveAttribute('target', '_blank')
@@ -201,4 +205,117 @@ describe('DocumentViewer', () => {
     const aside = await screen.findByRole('complementary', { name: 'About this document' })
     expect(within(aside).getByRole('link', { name: 'Synthetic CBC' })).toHaveAttribute('href', '/phr/patient/42/labs')
   })
+})
+
+function response(body: unknown, status = 200): Response {
+  return { ok: status < 400, status, statusText: status < 400 ? 'OK' : 'Conflict', text: async () => JSON.stringify(body) } as Response
+}
+
+describe('document detail actions', () => {
+  it('keeps full metadata visible and permissions fail closed', async () => {
+    respondWith(makeDocument({ summary: 'A full summary that should never be clipped.', tags: ['one', 'two', 'three', 'four'] }))
+    render(<DocumentViewer patientId={42} recordId="10" />)
+    expect(await screen.findByText('A full summary that should never be clipped.')).toBeInTheDocument()
+    expect(screen.getByText('one, two, three, four')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit metadata' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete document' })).not.toBeInTheDocument()
+  })
+
+  it('reviews against the loaded opaque version and reports conflicts without changing the record', async () => {
+    mockCanManage = true
+    const document = makeDocument({ review_status: 'pending_review', version: 'a'.repeat(64) })
+    mockFetch.mockImplementation(async (_url: string, options: RequestInit) => options.method === 'PATCH'
+      ? response({ message: 'This document changed. Read it again.' }, 409) : response({ document }))
+    render(<DocumentViewer patientId={42} recordId="10" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm January Labs' }))
+    await screen.findByRole('alert')
+    expect(mockFetch).toHaveBeenCalledWith('/api/phr/patients/42/documents/10/review', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ review_status: 'confirmed', version: 'a'.repeat(64) }) }))
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
+  })
+
+  it('edits existing metadata, preserves unknown types and notifies the list', async () => {
+    mockCanManage = true
+    const document = makeDocument({ document_type: 'future_record_type' })
+    const changed = jest.fn()
+    window.addEventListener('phr:record-changed', changed)
+    mockFetch.mockImplementation(async (_url: string, options: RequestInit) => response({ document: options.method === 'PATCH' ? { ...document, title: 'Renamed document' } : document }))
+    render(<DocumentViewer patientId={42} recordId="10" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit metadata' }))
+    const form = screen.getByRole('form', { name: 'Document metadata' })
+    expect(within(form).getByLabelText('Type')).toHaveValue('future_record_type')
+    fireEvent.change(within(form).getByLabelText('Title'), { target: { value: 'Renamed document' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }))
+    await screen.findByRole('heading', { name: 'Renamed document' })
+    const call = mockFetch.mock.calls.find(([, options]) => (options as RequestInit).method === 'PATCH')
+    if (!call) throw new Error('Expected a metadata PATCH')
+    expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ title: 'Renamed document', observed_at: '2026-01-15T10:30', summary: 'CBC and metabolic panel', tags: ['labs'] })
+    expect(changed).toHaveBeenCalledWith(expect.objectContaining({ detail: { resource: 'documents', patientId: 42, recordId: 10, origin: 'detail' } }))
+    window.removeEventListener('phr:record-changed', changed)
+  })
+
+  it('keeps a refused deletion open with its reason', async () => {
+    mockCanManage = true
+    mockFetch.mockImplementation(async (_url: string, options: RequestInit) => options.method === 'DELETE' ? response({ message: 'Document is still in use.' }, 409) : response({ document: makeDocument() }))
+    render(<DocumentViewer patientId={42} recordId="10" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete document' }))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
+    expect(await within(screen.getByRole('alertdialog')).findByRole('alert')).toHaveTextContent('Document is still in use.')
+    expect(screen.getByRole('heading', { name: 'January Labs', hidden: true })).toBeInTheDocument()
+  })
+
+  it('ignores an old mutation response after switching to another document', async () => {
+    mockCanManage = true
+    let finish: (value: Response) => void = () => {}
+    mockFetch.mockImplementation(async (url: string, options: RequestInit) => {
+      if (options.method === 'PATCH') return new Promise<Response>((resolve) => { finish = resolve })
+      return response({ document: makeDocument(url.endsWith('/11') ? { id: 11, title: 'Second document' } : {}) })
+    })
+    const { rerender } = render(<DocumentViewer patientId={42} recordId="10" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit metadata' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    rerender(<DocumentViewer patientId={42} recordId="11" />)
+    await screen.findByRole('heading', { name: 'Second document' })
+    finish(response({ document: makeDocument({ title: 'Old save completed' }) }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Second document' })).toBeInTheDocument())
+    expect(screen.queryByText('Old save completed')).not.toBeInTheDocument()
+  })
+})
+
+
+describe('document detail refresh', () => {
+  it('reloads when the list changes this document', async () => {
+    respondWith(makeDocument())
+    render(<DocumentViewer patientId={42} recordId="10" />)
+    await screen.findByRole('heading', { name: 'January Labs' })
+    respondWith(makeDocument({ title: 'Changed from the list' }))
+    const { recordChanged } = await import('@/phr/clinical/recordChanges')
+    recordChanged({ resource: 'documents', patientId: 42, recordId: 10, origin: 'list' })
+    expect(await screen.findByRole('heading', { name: 'Changed from the list' })).toBeInTheDocument()
+  })
+
+  it('keeps the newer record when an older fetch finishes last', async () => {
+    let finish: (value: Response) => void = () => {}
+    mockFetch.mockImplementation(async (url: string) => url.endsWith('/10') ? new Promise<Response>((resolve) => { finish = resolve }) : response({ document: makeDocument({ id: 11, title: 'New document' }) }))
+    const { rerender } = render(<DocumentViewer patientId={42} recordId="10" />)
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled())
+    rerender(<DocumentViewer patientId={42} recordId="11" />)
+    await screen.findByRole('heading', { name: 'New document' })
+    finish(response({ document: makeDocument() }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'New document' })).toBeInTheDocument())
+    expect(screen.queryByRole('heading', { name: 'January Labs' })).not.toBeInTheDocument()
+  })
+})
+
+
+it('uses the refreshed opaque version after sending a document to AI', async () => {
+  mockCanManage = true
+  const document = makeDocument({ review_status: 'pending_review', version: 'a'.repeat(64) })
+  mockFetch.mockImplementation(async (_url: string, options: RequestInit) => response({ document: options.method === 'POST'
+    ? { ...document, version: 'b'.repeat(64) } : options.method === 'PATCH' ? { ...document, version: 'c'.repeat(64), review_status: 'confirmed' } : document }))
+  render(<DocumentViewer patientId={42} recordId="10" />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Send to AI' }))
+  await screen.findByText('Sent to AI. Extracted records will wait for review.')
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm January Labs' }))
+  await waitFor(() => expect(screen.queryByText('Pending review')).not.toBeInTheDocument())
+  expect(mockFetch).toHaveBeenCalledWith('/api/phr/patients/42/documents/10/review', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ review_status: 'confirmed', version: 'b'.repeat(64) }) }))
 })
