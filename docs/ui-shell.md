@@ -34,8 +34,9 @@ dot and "Pending review", or a muted dot and "Rejected" (visible only when rejec
 shown). Approved records show nothing, so rows do not repeat "Confirmed". A table's Review
 column (`showWhenAnyRow` on the column) appears only while some visible row is pending or
 rejected, and approved rows leave their cell empty. Each row's approve and reject actions are
-unchanged. **(shipped)** Other status badges (clinical status, criticality) still use tinted
-text; they move to the dot as each page is revisited. **(planned)**
+unchanged. **(shipped)** Clinical status in Conditions, Allergies and Procedures, and allergy
+criticality and severity, use the same dot with a foreground-colored label. Unknown values keep
+their label with a neutral dot, and absent optional values show nothing. **(shipped)**
 
 ## Layout
 

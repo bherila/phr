@@ -3,10 +3,11 @@ import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import type { StatusTone } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
-import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
+import { codeChip, labelize, reviewStatusBadge, statusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -27,16 +28,16 @@ import {
   EMPTY_ALLERGY_FORM,
 } from './AllergyForm'
 
-const CRITICALITY_CLASS: Record<string, string> = {
-  high: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
-  low: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300',
-  unable_to_assess: 'bg-muted text-muted-foreground',
+const CRITICALITY_TONE: Record<string, StatusTone> = {
+  high: 'danger',
+  low: 'warning',
+  unable_to_assess: 'neutral',
 }
 
-const STATUS_CLASS: Record<string, string> = {
-  active: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
-  inactive: 'bg-muted text-muted-foreground',
-  resolved: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
+const STATUS_TONE: Record<string, StatusTone> = {
+  active: 'danger',
+  inactive: 'neutral',
+  resolved: 'success',
 }
 
 interface AddFormProps {
@@ -166,12 +167,8 @@ function AllergiesTable({
         <>
           <div>{allergy.reaction ?? 'Reaction not recorded'}</div>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {classBadge(allergy.criticality, CRITICALITY_CLASS)}
-            {allergy.severity && (
-              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${allergy.severity === 'severe' ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300' : 'bg-muted text-muted-foreground'}`}>
-                {allergy.severity}
-              </span>
-            )}
+            {statusBadge(allergy.criticality, CRITICALITY_TONE)}
+            {statusBadge(allergy.severity, { severe: 'danger' })}
           </div>
         </>
       ),
@@ -184,7 +181,7 @@ function AllergiesTable({
       className: 'px-4 py-3',
       cell: (allergy) => (
         <div className="flex items-center gap-2">
-          {classBadge(allergy.clinical_status, STATUS_CLASS)}
+          {statusBadge(allergy.clinical_status, STATUS_TONE)}
           {reviewStatusBadge(allergy.review_status)}
           <span className="text-xs text-muted-foreground">{labelize(allergy.verification_status)}</span>
         </div>

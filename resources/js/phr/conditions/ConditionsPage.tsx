@@ -2,13 +2,14 @@ import { Activity, CheckCircle2, ChevronDown, ChevronRight, Pencil, Plus, Trash2
 import { useMemo, useState } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import type { StatusTone } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
 import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
-import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
+import { codeChip, labelize, reviewStatusBadge, statusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -22,13 +23,13 @@ import {
 
 import { ConditionFormDialog, conditionFormFromRecord, conditionPayload, EMPTY_CONDITION_FORM } from './conditionForm'
 
-const STATUS_CLASS: Record<string, string> = {
-  active: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
-  recurrence: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
-  relapse: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
-  inactive: 'bg-muted text-muted-foreground',
-  remission: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300',
-  resolved: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
+const STATUS_TONE: Record<string, StatusTone> = {
+  active: 'danger',
+  recurrence: 'danger',
+  relapse: 'danger',
+  inactive: 'neutral',
+  remission: 'warning',
+  resolved: 'success',
 }
 
 interface ConditionsTableProps {
@@ -145,7 +146,7 @@ function ConditionsTable({
       className: 'px-4 py-3',
       cell: (condition) => (
         <div className="flex items-center gap-2">
-          {classBadge(condition.clinical_status, STATUS_CLASS)}
+          {statusBadge(condition.clinical_status, STATUS_TONE)}
           {reviewStatusBadge(condition.review_status)}
           <span className="text-xs text-muted-foreground">{labelize(condition.verification_status)}</span>
         </div>

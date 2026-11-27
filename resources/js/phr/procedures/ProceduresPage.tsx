@@ -4,13 +4,14 @@ import { useState } from 'react'
 
 import { RecordList } from '@/components/record-list/RecordList'
 import { SkeletonBlock } from '@/components/record-list/Skeleton'
+import type { StatusTone } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
-import { classBadge, codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
+import { codeChip, reviewStatusBadge, statusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -25,12 +26,12 @@ import {
 
 const SELECT_CLASS = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm'
 
-const STATUS_CLASS: Record<string, string> = {
-  preparation: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300',
-  in_progress: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300',
-  completed: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
-  cancelled: 'bg-muted text-muted-foreground',
-  entered_in_error: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
+const STATUS_TONE: Record<string, StatusTone> = {
+  preparation: 'neutral',
+  in_progress: 'warning',
+  completed: 'success',
+  cancelled: 'neutral',
+  entered_in_error: 'danger',
 }
 
 const STATUS_OPTIONS = [
@@ -328,7 +329,7 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {codeChip('CPT', procedure.cpt_code)}
                         {codeChip('SNOMED', procedure.snomed_code)}
-                        {classBadge(procedure.status, STATUS_CLASS)}
+                        {statusBadge(procedure.status, STATUS_TONE)}
                         {reviewStatusBadge(procedure.review_status)}
                       </div>
                       <div className="mt-2 text-sm text-muted-foreground">
