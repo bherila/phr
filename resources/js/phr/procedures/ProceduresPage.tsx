@@ -210,7 +210,7 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
                       <p className={`mt-1 text-sm text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>
                         {[displayProcedureDate(procedure), labelize(procedure.status), procedure.performer_name].filter(Boolean).join(' · ')}<span className="hidden @[560px]/record-list:inline">{procedure.facility_name && ` · ${procedure.facility_name}`}</span>
                       </p>
-                      <div className="mt-1 hidden flex-wrap items-center gap-1.5 @[960px]/record-list:flex">
+                      <div className="mt-1 hidden flex-wrap items-center gap-1.5 @[960px]/record-list:flex [&>span]:whitespace-normal">
                         <span className="hidden @[960px]/record-list:inline">{codeChip('CPT', procedure.cpt_code)}</span>
                         <span className="hidden @[960px]/record-list:inline">{codeChip('SNOMED', procedure.snomed_code)}</span>
                         {statusBadge(procedure.status, STATUS_TONE)}

@@ -92,20 +92,20 @@ export function MedicationFillHistory({ patientId, medicationId, onDrill }: {
             className: `${CELL} tabular-nums`,
             cell: (fill) => (
               <div>
-              <span className="inline-flex items-center gap-1.5">
-                <a
-                  href={patientPageUrl(patientId, 'medication-fills', fill.id)}
-                  aria-label={`${fillDrugName(fill)} fill ${formatFillDate(fill.filled_on)}`}
-                  className="text-primary underline-offset-2 hover:underline"
-                >
-                  {formatFillDate(fill.filled_on)}
-                </a>
-                {fill.review_status === 'pending_review' && <span role="img" aria-label="Pending review" className="size-2 rounded-full bg-warning" />}
-              </span>
-              <span className={`mt-0.5 block text-xs text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>
-                <span className={RECORD_ONLY_BELOW_MEDIUM}>{formatQuantity(fill.quantity)} · {formatCents(fill.paid_cents)} · </span>
-                {(fill.display?.pharmacy_name ?? fill.pharmacy_name) ?? MISSING}
-              </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <a
+                    href={patientPageUrl(patientId, 'medication-fills', fill.id)}
+                    aria-label={`${fillDrugName(fill)} fill ${formatFillDate(fill.filled_on)}`}
+                    className="text-primary underline-offset-2 hover:underline"
+                  >
+                    {formatFillDate(fill.filled_on)}
+                  </a>
+                  {fill.review_status === 'pending_review' && <span role="img" aria-label="Pending review" className="size-2 rounded-full bg-warning" />}
+                </span>
+                <span className={`mt-0.5 block text-xs text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>
+                  <span className={RECORD_ONLY_BELOW_MEDIUM}>{formatQuantity(fill.quantity)} · {formatCents(fill.paid_cents)} · </span>
+                  {(fill.display?.pharmacy_name ?? fill.pharmacy_name) ?? MISSING}
+                </span>
               </div>
             ),
           },

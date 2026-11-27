@@ -107,6 +107,26 @@ describe('ReviewPage', () => {
     expect(within(exported).getByRole('link', { name: 'Compare Synthetic vaccine B' })).toHaveAttribute('href', `/phr/imports?patient_id=${PATIENT}&ehi_package=9`)
   })
 
+  it('uses the list width while keeping one workflow action and every selectable checkbox reachable', async () => {
+    mockGet.mockResolvedValue(queue([ccda, ai, export_]))
+    render(<ReviewPage patientId={PATIENT} />)
+    const imported = await screen.findByRole('region', { name: 'C-CDA import · visit-summary.xml' })
+    const table = within(imported).getByRole('table')
+    expect(table).not.toHaveClass('min-w-[760px]')
+    expect(table.parentElement).toHaveClass('@container/record-list')
+    expect(within(table).getByRole('columnheader', { name: 'Section' })).toHaveClass('hidden', '@[960px]/record-list:table-cell')
+    expect(within(table).getByRole('columnheader', { name: 'Change' })).toHaveClass('hidden', '@[560px]/record-list:table-cell')
+    const action = within(table).getByRole('link', { name: 'Open Synthetic rhinitis' })
+    expect(action.closest('td')).not.toHaveClass('hidden')
+    expect(within(table).getAllByRole('link', { name: 'Open Synthetic rhinitis' })).toHaveLength(1)
+    expect(within(table).getByRole('checkbox', { name: 'Select Synthetic rhinitis' })).toBeChecked()
+    const summary = within(table).getAllByText('Updates existing').find((element) => element.parentElement?.className.includes('@[560px]/record-list:hidden'))
+    expect(summary).toBeDefined()
+    const extracted = section('AI extraction')
+    expect(within(extracted).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(extracted).getByRole('button', { name: 'Review Synthetic amoxicillin' }).closest('td')).not.toHaveClass('hidden')
+  })
+
   it('confirms the count, batches clinical decisions, and reports refusals per row', async () => {
     mockGet.mockResolvedValueOnce(queue([ccda, ai, export_]))
     // The condition changed after the page loaded: its route refuses it.

@@ -65,7 +65,10 @@ export default function ProcedureDetail({ patientId, recordId, onDrill }: PhrDet
     setConfirmingDelete(false)
     setMutating(null)
     void load(() => cancelled)
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (selectedEndpoint.current === endpoint) selectedEndpoint.current = ''
+    }
   }, [endpoint, load])
 
   useRecordChanges('procedures', patientId, 'list', (changedId) => {
@@ -191,7 +194,7 @@ export default function ProcedureDetail({ patientId, recordId, onDrill }: PhrDet
               </div>
             </div>
           </section>
-          {canManage && <RecordReviewBar status={procedure.review_status} label={procedure.name} busy={mutating !== null} disabled={busy} onReview={(decision) => { void change('review', decision) }} />}
+          {canManage && <RecordReviewBar status={procedure.review_status} label={procedure.name} busy={mutating !== null} disabled={busy || editing} onReview={(decision) => { void change('review', decision) }} />}
           <ConfirmDeleteDialog open={confirmingDelete} title="Delete this procedure?" description={<>Delete <strong>{procedure.name}</strong>? This cannot be undone.</>} busy={mutating === 'delete'} error={error} onConfirm={() => { void change('delete') }} onCancel={() => { setConfirmingDelete(false); setError(null) }} />
           <EncounterEobLinks
             key={`${patientId}-${recordId}`}
