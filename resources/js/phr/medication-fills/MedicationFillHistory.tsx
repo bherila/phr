@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, RecordTable } from '@/components/record-list/RecordTable'
 import { fetchWrapper } from '@/fetchWrapper'
 import { useRecordChanges } from '@/phr/clinical/recordChanges'
 import { errorMessage } from '@/phr/shared'
@@ -62,7 +62,7 @@ export function MedicationFillHistory({ patientId, medicationId, onDrill }: {
     : undefined
 
   return (
-    <section aria-label="Fill history" className="space-y-2 border-t border-border pt-4">
+    <section aria-label="Fill history" className="min-w-0 space-y-2 border-t border-border pt-4 wrap-anywhere">
       <div className="flex flex-wrap items-baseline gap-x-2">
         <h3 className="text-sm font-semibold text-card-foreground">Fill history</h3>
         {summary && <span className="text-xs text-muted-foreground">{summary}</span>}
@@ -88,10 +88,10 @@ export function MedicationFillHistory({ patientId, medicationId, onDrill }: {
           {
             id: 'date',
             header: 'Date',
-            fit: true,
             headerClassName: HEAD,
             className: `${CELL} tabular-nums`,
             cell: (fill) => (
+              <div>
               <span className="inline-flex items-center gap-1.5">
                 <a
                   href={patientPageUrl(patientId, 'medication-fills', fill.id)}
@@ -102,11 +102,16 @@ export function MedicationFillHistory({ patientId, medicationId, onDrill }: {
                 </a>
                 {fill.review_status === 'pending_review' && <span role="img" aria-label="Pending review" className="size-2 rounded-full bg-warning" />}
               </span>
+              <span className={`mt-0.5 block text-xs text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>
+                <span className={RECORD_ONLY_BELOW_MEDIUM}>{formatQuantity(fill.quantity)} · {formatCents(fill.paid_cents)} · </span>
+                {(fill.display?.pharmacy_name ?? fill.pharmacy_name) ?? MISSING}
+              </span>
+              </div>
             ),
           },
-          { id: 'quantity', header: 'Qty', fit: true, headerClassName: HEAD, className: CELL, cell: (fill) => formatQuantity(fill.quantity) },
-          { id: 'paid', header: 'Paid', fit: true, numeric: true, headerClassName: HEAD, className: CELL, cell: (fill) => formatCents(fill.paid_cents) },
-          { id: 'pharmacy', header: 'Pharmacy', headerClassName: 'py-1.5 text-xs font-medium', className: 'py-2 text-muted-foreground', cell: (fill) => (fill.display?.pharmacy_name ?? fill.pharmacy_name) ?? MISSING },
+          { id: 'quantity', header: 'Qty', showFrom: 'medium', fit: true, headerClassName: HEAD, className: CELL, cell: (fill) => formatQuantity(fill.quantity) },
+          { id: 'paid', header: 'Paid', showFrom: 'medium', fit: true, numeric: true, headerClassName: HEAD, className: CELL, cell: (fill) => formatCents(fill.paid_cents) },
+          { id: 'pharmacy', header: 'Pharmacy', showFrom: 'wide', headerClassName: 'py-1.5 text-xs font-medium', className: 'py-2 text-muted-foreground', cell: (fill) => (fill.display?.pharmacy_name ?? fill.pharmacy_name) ?? MISSING },
         ]}
       />
       {fills.length > 0 && (

@@ -3,13 +3,14 @@ import type { FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { RecordList } from '@/components/record-list/RecordList'
+import { RECORD_ONLY_BELOW_WIDE } from '@/components/record-list/RecordTable'
 import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate, formatDateTime } from '@/lib/dateFormat'
+import { useRecordChanges } from '@/phr/clinical/recordChanges'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
-import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import { encounterClassLabel } from '@/phr/office-visits/encounterLabels'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
@@ -25,6 +26,8 @@ import {
   type PhrProcedure,
   PhrProceduresResponseSchema,
 } from '@/phr/types'
+
+import { TimelineReviewStatus } from './TimelineReviewStatus'
 
 const ALLERGY_ADMINISTRATION_CODES = new Set(['95115', '95117'])
 const DAY_IN_MILLISECONDS = 86_400_000
@@ -254,6 +257,8 @@ export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: Phr
   }, [patientId, showRejected])
 
   useEffect(() => { void load() }, [load])
+  useRecordChanges('procedures', patientId, 'detail', () => { void load() })
+  useRecordChanges('procedures', patientId, 'list', () => { void load() })
 
   const allEvents = useMemo(
     () => eventsFromRecords(visits, procedures, immunizations),
@@ -320,7 +325,7 @@ export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: Phr
           skeletonRows={5}
           skeletonItem={<div className="rounded-lg border border-border bg-card px-4 py-3"><SkeletonBlock className="w-1/3 text-sm" /><SkeletonBlock className="mt-1 w-2/3" /></div>}
           as="ol"
-          className="relative space-y-4 border-l border-border pl-5"
+          className="@container/record-list relative min-w-0 space-y-3 border-l border-border pl-5"
           itemClassName="relative"
           rows={filteredEvents}
           rowId={(event) => event.key}
@@ -331,22 +336,25 @@ export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: Phr
             return (
               <>
                 <span className="absolute -left-[1.65rem] top-4 size-3 rounded-full border-2 border-background bg-primary" />
-                <div className="w-full rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/30 in-data-[open]:bg-accent/60">
-                  <div className="grid gap-2 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-start">
-                    <div>
+                <div className="w-full min-w-0 rounded-lg border border-border bg-card px-3 py-3 text-left wrap-anywhere transition-colors hover:bg-muted/30 in-data-[open]:bg-accent/60 @[560px]/record-list:px-4">
+                  <div className="grid min-w-0 grid-cols-1 gap-1 @[960px]/record-list:grid-cols-[190px_minmax(0,1fr)_auto] @[960px]/record-list:items-start @[960px]/record-list:gap-2">
+                    <div className="hidden @[960px]/record-list:block">
                       <p className="text-sm font-medium text-muted-foreground">{event.displayDate}</p>
                       {interval !== null && interval >= 0 && (
                         <p className="mt-1 text-xs font-medium text-primary">{intervalLabel(interval, filter)}</p>
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-card-foreground">{event.title}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{event.subtitle}</p>
-                      {event.detail && <p className="mt-2 text-sm text-foreground">{event.detail}</p>}
+                      <div className="flex min-w-0 items-start justify-between gap-2"><p className="min-w-0 font-medium text-card-foreground">{event.title}</p><TimelineReviewStatus status={event.reviewStatus} /></div>
+                      <p className={`mt-1 text-sm text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>
+                        {[event.displayDate, event.badge, interval !== null && interval >= 0 ? intervalLabel(interval, filter) : null].filter(Boolean).join(' · ')}<span className="hidden @[560px]/record-list:inline">{event.subtitle && ` · ${event.subtitle}`}</span>
+                      </p>
+                      <p className="mt-1 hidden text-sm text-muted-foreground @[960px]/record-list:block">{event.subtitle}</p>
+                      {event.detail && <p className="mt-2 hidden text-sm text-foreground @[960px]/record-list:block">{event.detail}</p>}
                     </div>
-                    <div className="flex flex-wrap justify-end gap-1.5">
-                      <span className="w-fit rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">{event.badge}</span>
-                      {event.reviewStatus && reviewStatusBadge(event.reviewStatus)}
+                    <div className="flex min-w-0 flex-wrap gap-1.5 @[960px]/record-list:justify-end">
+                      <span className="hidden w-fit rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground @[960px]/record-list:inline">{event.badge}</span>
+
                     </div>
                   </div>
                 </div>

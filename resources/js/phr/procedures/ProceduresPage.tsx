@@ -3,17 +3,18 @@ import type { FormEvent } from 'react'
 import { useState } from 'react'
 
 import { RecordList } from '@/components/record-list/RecordList'
+import { RECORD_ONLY_BELOW_WIDE } from '@/components/record-list/RecordTable'
 import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import type { StatusTone } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
-import { codeChip, reviewStatusBadge, statusBadge } from '@/phr/clinical/ui'
+import { codeChip, labelize, statusBadge } from '@/phr/clinical/ui'
+import { TimelineReviewStatus } from '@/phr/office-visits/TimelineReviewStatus'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
-import { compactPayload, zodErrorMessage } from '@/phr/shared'
+import { zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
@@ -24,7 +25,7 @@ import {
   PhrProceduresResponseSchema,
 } from '@/phr/types'
 
-const SELECT_CLASS = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm'
+import { EMPTY_FORM, ProcedureFormFields, procedureFormFromRecord, procedurePayload } from './procedureForm'
 
 const STATUS_TONE: Record<string, StatusTone> = {
   preparation: 'neutral',
@@ -34,60 +35,9 @@ const STATUS_TONE: Record<string, StatusTone> = {
   entered_in_error: 'danger',
 }
 
-const STATUS_OPTIONS = [
-  { value: 'completed', label: 'Completed' },
-  { value: 'preparation', label: 'Preparation' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'cancelled', label: 'Cancelled' },
-  { value: 'entered_in_error', label: 'Entered in Error' },
-] as const
-
-const EMPTY_FORM: PhrProcedureFormData = {
-  name: '',
-  cpt_code: '',
-  snomed_code: '',
-  performed_at: '',
-  performed_on: '',
-  performer_name: '',
-  performer_specialty: '',
-  facility_name: '',
-  status: 'completed',
-  reason: '',
-  outcome: '',
-  notes: '',
-}
-
-interface ProcedureFormFieldsProps {
-  form: PhrProcedureFormData
-  onChange: (form: PhrProcedureFormData) => void
-}
-
 interface AddFormProps {
   busy: boolean
   onSubmit: (form: PhrProcedureFormData) => Promise<boolean>
-}
-
-function procedureFormFromRecord(procedure: PhrProcedure): PhrProcedureFormData {
-  return {
-    name: procedure.name,
-    cpt_code: procedure.cpt_code ?? '',
-    snomed_code: procedure.snomed_code ?? '',
-    performed_at: toDatetimeLocal(procedure.performed_at),
-    performed_on: procedure.performed_on ?? '',
-    performer_name: procedure.performer_name ?? '',
-    performer_specialty: procedure.performer_specialty ?? '',
-    facility_name: procedure.facility_name ?? '',
-    status: PhrProcedureFormSchema.shape.status.safeParse(procedure.status).success
-      ? procedure.status as PhrProcedureFormData['status']
-      : 'completed',
-    reason: procedure.reason ?? '',
-    outcome: procedure.outcome ?? '',
-    notes: procedure.notes ?? '',
-  }
-}
-
-function procedurePayload(form: PhrProcedureFormData): Record<string, unknown> {
-  return compactPayload(form)
 }
 
 function sortProcedures(procedures: PhrProcedure[]): PhrProcedure[] {
@@ -103,83 +53,12 @@ function sortProcedures(procedures: PhrProcedure[]): PhrProcedure[] {
   })
 }
 
-function toDatetimeLocal(value: string | null): string {
-  return value ? value.replace(' ', 'T').slice(0, 16) : ''
-}
-
 function displayProcedureDate(procedure: PhrProcedure): string {
   if (procedure.performed_at) {
     return formatDateTime(procedure.performed_at)
   }
 
   return formatDate(procedure.performed_on) || 'Date not recorded'
-}
-
-function ProcedureFormFields({ form, onChange }: ProcedureFormFieldsProps) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Name *
-        <Input value={form.name} onChange={(event) => onChange({ ...form, name: event.target.value })} required />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Performed At
-        <Input
-          type="datetime-local"
-          value={form.performed_at}
-          onChange={(event) => onChange({ ...form, performed_at: event.target.value })}
-        />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Performed On
-        <Input type="date" value={form.performed_on} onChange={(event) => onChange({ ...form, performed_on: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        CPT Code
-        <Input value={form.cpt_code} onChange={(event) => onChange({ ...form, cpt_code: event.target.value })} placeholder="99213" />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        SNOMED Code
-        <Input value={form.snomed_code} onChange={(event) => onChange({ ...form, snomed_code: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Performer
-        <Input value={form.performer_name} onChange={(event) => onChange({ ...form, performer_name: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Specialty
-        <Input value={form.performer_specialty} onChange={(event) => onChange({ ...form, performer_specialty: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Facility
-        <Input value={form.facility_name} onChange={(event) => onChange({ ...form, facility_name: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Status
-        <select
-          value={form.status}
-          onChange={(event) => onChange({ ...form, status: event.target.value as PhrProcedureFormData['status'] })}
-          className={SELECT_CLASS}
-        >
-          {STATUS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Reason
-        <Textarea value={form.reason} onChange={(event) => onChange({ ...form, reason: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Outcome
-        <Textarea value={form.outcome} onChange={(event) => onChange({ ...form, outcome: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Notes
-        <Textarea value={form.notes} onChange={(event) => onChange({ ...form, notes: event.target.value })} />
-      </label>
-    </div>
-  )
 }
 
 function AddForm({ busy, onSubmit }: AddFormProps) {
@@ -233,7 +112,9 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
     payloadFromForm: procedurePayload,
     initialCanManage: knownCanManage,
     sortRecords: sortProcedures,
+    onRecordChanged: (recordId) => recordChanged({ resource: 'procedures', patientId, recordId, origin: 'list' }),
   })
+  useRecordChanges('procedures', patientId, 'detail', () => { void crud.reload() })
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
   const firstLoad = crud.busy && crud.records.length === 0
 
@@ -306,7 +187,7 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
           skeletonItem={<div className="rounded-lg border border-border bg-card px-4 py-3"><SkeletonBlock className="w-1/3 text-sm" /><SkeletonBlock className="mt-1 w-2/3" /></div>}
           label="Procedures"
           as="ol"
-          className="relative space-y-4 border-l border-border pl-5"
+          className="@container/record-list relative min-w-0 space-y-3 border-l border-border pl-5"
           itemClassName="relative"
           rows={crud.records}
           rowId={(procedure) => String(procedure.id)}
@@ -321,18 +202,21 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
             return (
               <>
                 <span className="absolute -left-[1.65rem] top-4 size-3 rounded-full border-2 border-background bg-primary" />
-                <div className="rounded-lg border border-border bg-card transition-colors hover:bg-muted/30 in-data-[open]:bg-accent/60">
-                  <div className="grid gap-3 px-4 py-3 md:grid-cols-[150px_minmax(0,1fr)_auto] md:items-start">
-                    <div className="text-sm font-medium text-muted-foreground">{displayProcedureDate(procedure)}</div>
+                <div className="min-w-0 rounded-lg border border-border bg-card wrap-anywhere transition-colors hover:bg-muted/30 in-data-[open]:bg-accent/60">
+                  <div className="grid min-w-0 grid-cols-1 gap-1 px-3 py-3 @[560px]/record-list:px-4 @[960px]/record-list:grid-cols-[150px_minmax(0,1fr)_auto] @[960px]/record-list:items-start @[960px]/record-list:gap-3">
+                    <div className="hidden text-sm font-medium text-muted-foreground @[960px]/record-list:block">{displayProcedureDate(procedure)}</div>
                     <div className="min-w-0">
-                      <div className="font-medium text-card-foreground">{procedure.name}</div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {codeChip('CPT', procedure.cpt_code)}
-                        {codeChip('SNOMED', procedure.snomed_code)}
+                      <div className="flex min-w-0 items-start justify-between gap-2"><span className="min-w-0 font-medium text-card-foreground">{procedure.name}</span><TimelineReviewStatus status={procedure.review_status} /></div>
+                      <p className={`mt-1 text-sm text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>
+                        {[displayProcedureDate(procedure), labelize(procedure.status), procedure.performer_name].filter(Boolean).join(' · ')}<span className="hidden @[560px]/record-list:inline">{procedure.facility_name && ` · ${procedure.facility_name}`}</span>
+                      </p>
+                      <div className="mt-1 hidden flex-wrap items-center gap-1.5 @[960px]/record-list:flex">
+                        <span className="hidden @[960px]/record-list:inline">{codeChip('CPT', procedure.cpt_code)}</span>
+                        <span className="hidden @[960px]/record-list:inline">{codeChip('SNOMED', procedure.snomed_code)}</span>
                         {statusBadge(procedure.status, STATUS_TONE)}
-                        {reviewStatusBadge(procedure.review_status)}
+
                       </div>
-                      <div className="mt-2 text-sm text-muted-foreground">
+                      <div className="mt-2 hidden text-sm text-muted-foreground @[960px]/record-list:block">
                         {[
                           procedure.performer_name,
                           procedure.performer_specialty,
@@ -340,7 +224,7 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
                         ].filter(Boolean).join(' · ') || 'No performer or facility recorded'}
                       </div>
                       {(procedure.reason || procedure.outcome || procedure.notes) && (
-                        <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                        <div className="mt-2 hidden gap-1 text-xs text-muted-foreground @[960px]/record-list:grid">
                           {procedure.reason && <p><span className="font-medium text-foreground">Reason:</span> {procedure.reason}</p>}
                           {procedure.outcome && <p><span className="font-medium text-foreground">Outcome:</span> {procedure.outcome}</p>}
                           {procedure.notes && <p>{procedure.notes}</p>}
@@ -348,7 +232,7 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
                       )}
                     </div>
                     {crud.canManage && (
-                      <div className="flex justify-end gap-2">
+                      <div className="hidden justify-end gap-2 @[960px]/record-list:flex">
                         <ReviewActions
                           status={procedure.review_status}
                           label={procedure.name}
