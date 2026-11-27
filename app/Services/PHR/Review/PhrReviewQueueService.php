@@ -53,8 +53,8 @@ use Illuminate\Support\Str;
  * clinical records in `pending_review` (decided on the browser review route of
  * their section), AI import proposals (PhrImportReviewService, as the Imports
  * page and the agent API's imports.review use) and EHI export proposals
- * (EhiProposalService). Nothing here writes; the Review page sends each
- * decision to the route that already owns it.
+ * (EhiProposalService). Nothing here writes; clinical decisions use the same
+ * locked review service in single or batch requests, and proposals keep their routes.
  *
  * The caller resolves the patient first. Every query is scoped to it and the
  * number of queries is fixed, not proportional to what is pending.

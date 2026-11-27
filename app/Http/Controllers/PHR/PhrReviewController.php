@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\PHR\ReviewClinicalRecordsRequest;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Review\ClinicalReviewDecisions;
 use App\Services\PHR\Review\PhrReviewQueueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,8 +15,8 @@ use Illuminate\Http\Request;
  * The patient's review queue for the browser: counts for the sidebar and the
  * pending items for the Review page. Read-only and readable access, like every
  * other patient-scoped list; `can_manage` says whether this person may decide.
- * Decisions go to the routes that own them (a section's review route, the AI
- * import accept/reject routes, the EHI proposal review route).
+ * Clinical decisions share the section routes' locked review service, in bounded
+ * batches. AI and EHI proposals retain their own acceptance routes.
  */
 final class PhrReviewController extends Controller
 {
@@ -59,6 +61,14 @@ final class PhrReviewController extends Controller
             'items' => $this->queue->rejectedMedications($patientModel),
             'can_manage' => $this->access->canWrite($patientModel, $userId),
         ]);
+    }
+
+    /** Bounded browser-only decisions; every item's version is required. */
+    public function decideRecords(ReviewClinicalRecordsRequest $request, int $patient, ClinicalReviewDecisions $decisions): JsonResponse
+    {
+        $patientModel = $this->access->writablePatient($patient, (int) $request->user()?->id);
+
+        return $this->privateJson($decisions->batch($patientModel, $request->items(), $request->reviewStatus()));
     }
 
     /**

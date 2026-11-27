@@ -5,7 +5,7 @@ namespace App\Http\Controllers\PHR\Concerns;
 use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
-use App\Support\AgentApi\AgentClinicalRecordVersion;
+use App\Services\PHR\Review\ClinicalReviewDecisions;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,7 +16,6 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * @template TClinicalModel of Model
@@ -164,10 +163,7 @@ trait HandlesClinicalResourceRequests
                 ->where('patient_id', $resolvedPatient->id)
                 ->lockForUpdate()
                 ->findOrFail($record);
-            if ($expected !== null && ! hash_equals(app(AgentClinicalRecordVersion::class)->for($locked), $expected)) {
-                throw new ConflictHttpException('This record changed since it was loaded. Reload and review it again.');
-            }
-            $locked->update(['review_status' => $request->reviewStatus()]);
+            app(ClinicalReviewDecisions::class)->reviewLocked($locked, $request->reviewStatus(), $expected);
         });
 
         return response()->json([$this->resourceKey() => $this->resourcePayload($this->readClinicalResource($resolvedPatient, $record))]);
