@@ -102,6 +102,7 @@ final class WriteResponseMatchesReadTest extends TestCase
         'phr.data-hub.native-restores.preview' => 'returns a restore preview',
         'phr.data-hub.native-restores.apply' => 'returns a restore job',
         'phr.patients.access.store' => 'returns an access grant, read only as part of the patient',
+        'phr.patients.review.records' => 'returns per-record decision receipts, not clinical payloads; ClinicalBatchReviewTest pins the saved states, per-item failures and single-route parity',
         'phr.patients.eobs.review' => 'returns the reviewed EOB summary; the EOB has no browser read of its own beyond the service-date lookup',
         'phr.patients.office-visits.eobs.store' => 'returns the link, not the visit',
         'phr.patients.office-visits.imaging-studies.store' => 'returns the link, not the visit',
