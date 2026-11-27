@@ -340,7 +340,9 @@ giving its date, in Edit. **(shipped)**
   the record's own page for its details and actions. Review keeps its selection and workflow
   actions directly reachable. **(shipped)**
 - Approve and Reject sit in a full-width bar held at the bottom of the screen on a medication's
-  or a fill's page. **(shipped)** Other records keep their inline buttons. **(planned)**
+  or a fill's page. Conditions, Allergies, Immunizations, Procedures, selected lab results and
+  vital readings use the same detail bar. **(shipped)** Visits and documents keep their inline
+  review buttons. **(planned)**
 - Tap targets on those pages are at least 44px: Add, the tabs, the filter sheet, the review
   bar, a detail's Edit, ⋯ and close, and the top bar. **(shipped)** Other sections' controls are
   not there yet. **(planned)**

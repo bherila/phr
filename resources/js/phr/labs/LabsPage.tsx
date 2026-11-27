@@ -157,7 +157,7 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
     },
     ...(showPanelColumn ? [{
       id: 'panel',
-      showFrom: 'wide',
+      showFrom: 'wide' as const,
       header: 'Panel',
       headerClassName: HEAD,
       className: 'px-3 py-2 text-muted-foreground',

@@ -28,6 +28,10 @@ function expectIndicator(element: HTMLElement, tone: StatusTone): void {
   expect(element.firstElementChild).toHaveClass('rounded-full')
 }
 
+function expectRowIndicators(row: HTMLElement, label: string, tone: StatusTone): void {
+  for (const element of within(row).getAllByText(label)) expectIndicator(element, tone)
+}
+
 beforeEach(() => {
   mockGet.mockReset()
 })
@@ -69,7 +73,7 @@ describe('condition status', () => {
     }
 
     const row = (await screen.findByText('Synthetic condition')).closest('tr')!
-    expectIndicator(within(row).getByText(status.replaceAll('_', ' ')), tone)
+    expectRowIndicators(row, status.replaceAll('_', ' '), tone)
     expect(within(row).queryByText('Confirmed')).not.toBeInTheDocument()
     expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/conditions')
   })
@@ -96,9 +100,9 @@ describe('allergy status, criticality and severity', () => {
     }
 
     const row = (await screen.findByText('Synthetic allergen')).closest('tr')!
-    expectIndicator(within(row).getByText(status.replaceAll('_', ' ')), statusTone)
-    expectIndicator(within(row).getByText(criticality.replaceAll('_', ' ')), criticalityTone)
-    expectIndicator(within(row).getByText(severity.replaceAll('_', ' ')), severityTone)
+    expectRowIndicators(row, status.replaceAll('_', ' '), statusTone)
+    expectRowIndicators(row, criticality.replaceAll('_', ' '), criticalityTone)
+    expectRowIndicators(row, severity.replaceAll('_', ' '), severityTone)
     expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/allergies')
   })
 
@@ -114,8 +118,10 @@ describe('allergy status, criticality and severity', () => {
     render(<AllergiesPage patientId={42} />)
 
     const row = (await screen.findByText('Synthetic allergen')).closest('tr')!
-    expectIndicator(within(row).getByText('active'), 'danger')
-    expect(row.querySelectorAll('[data-tone]')).toHaveLength(1)
+    expectRowIndicators(row, 'active', 'danger')
+    const indicators = row.querySelectorAll('[data-tone]')
+    expect(indicators.length).toBeGreaterThan(0)
+    for (const indicator of indicators) expect(indicator).toHaveTextContent(/^active$/)
   })
 })
 
@@ -136,7 +142,7 @@ describe('procedure status', () => {
     render(<ProceduresPage patientId={42} />)
 
     const row = (await screen.findByText('Synthetic procedure')).closest('li')!
-    expectIndicator(within(row).getByText(status.replaceAll('_', ' ')), tone)
+    expectRowIndicators(row, status.replaceAll('_', ' '), tone)
     expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/procedures')
   })
 })
