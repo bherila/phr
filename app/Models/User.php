@@ -12,6 +12,7 @@ use Bherila\GenAiLaravel\Clients\BedrockClient;
 use Bherila\GenAiLaravel\Clients\GeminiClient;
 use Bherila\GenAiLaravel\Contracts\GenAiClient;
 use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
+use BWH\Auth\OAuth\Session\RememberedProviderLogins;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -45,6 +46,7 @@ class User extends Authenticatable implements OAuthenticatable
 
         static::deleting(function (User $user): void {
             $user->revokeOAuthTokens();
+            app(RememberedProviderLogins::class)->forgetUser((string) $user->getKey());
             // Data Hub audits retain operation proof but anonymize the actor when
             // a full account is removed. Neither table has clinical/free text.
             DB::table('phr_native_backup_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);

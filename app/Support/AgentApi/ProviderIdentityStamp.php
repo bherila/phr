@@ -18,7 +18,7 @@ final class ProviderIdentityStamp
      * enforcement is off and the session has no baseline; with enforcement on,
      * a bound account without a verified session cannot be issued one.
      *
-     * @return array<string, string|int>
+     * @return array<string, string|int|null>
      */
     public static function forIssue(Model $model, string|int|null $userId): array
     {
@@ -34,7 +34,8 @@ final class ProviderIdentityStamp
             return [];
         }
 
-        return ProviderIdentityTokens::attributes($stamp);
+        return ProviderIdentityTokens::attributes($stamp,
+            withEpoch: $model->getConnection()->getSchemaBuilder()->hasColumn($model->getTable(), ProviderIdentityTokens::EPOCH_COLUMN));
     }
 
     public static function hasColumns(Model $model): bool
