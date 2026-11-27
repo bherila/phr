@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import { fetchWrapper } from '@/fetchWrapper'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
@@ -17,5 +19,25 @@ export async function recordReviewDecision(recordUrl: string, decision: PhrRevie
   } finally {
     // A refusal can mean the record changed elsewhere, so the counts may be stale either way.
     if (patientId > 0) void reviewStateChanged(patientId)
+  }
+}
+const BatchIdentitySchema = z.object({ segment: z.string(), id: z.number() })
+const BatchReviewSchema = z.object({
+  done: z.array(BatchIdentitySchema),
+  failed: z.array(BatchIdentitySchema.extend({ error: z.string() })),
+})
+export type ClinicalBatchOutcome = z.infer<typeof BatchReviewSchema>
+export interface ClinicalReviewItem {
+  segment: string
+  id: number
+  version: string
+}
+
+/** A bounded request with per-record version checks and failures, without full record payloads. */
+export async function recordReviewDecisions(patientId: number, items: ClinicalReviewItem[], decision: PhrReviewDecision): Promise<ClinicalBatchOutcome> {
+  try {
+    return BatchReviewSchema.parse(await fetchWrapper.post(`/api/phr/patients/${patientId}/review/records`, { review_status: decision, items }))
+  } finally {
+    void reviewStateChanged(patientId)
   }
 }

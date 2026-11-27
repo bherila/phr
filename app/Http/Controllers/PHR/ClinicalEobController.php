@@ -10,13 +10,13 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Review\ClinicalReviewDecisions;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class ClinicalEobController extends Controller
 {
@@ -64,10 +64,7 @@ class ClinicalEobController extends Controller
         $expected = $request->expectedVersion();
         DB::transaction(function () use ($resolved, $eob, $expected, $request): void {
             $locked = PhrEob::query()->where('patient_id', $resolved->id)->lockForUpdate()->findOrFail($eob);
-            if ($expected !== null && ! hash_equals(app(AgentClinicalRecordVersion::class)->for($locked), $expected)) {
-                throw new ConflictHttpException('This EOB changed since it was loaded. Reload and review it again.');
-            }
-            $locked->update(['review_status' => $request->reviewStatus()]);
+            app(ClinicalReviewDecisions::class)->reviewLocked($locked, $request->reviewStatus(), $expected);
         });
         $reviewed = $this->eob($resolved, $eob);
 

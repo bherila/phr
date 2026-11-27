@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { fetchWrapper } from '@/fetchWrapper'
-import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { recordReviewDecision, recordReviewDecisions } from '@/phr/clinical/reviewDecision'
 import { AiImportResultSchema, decideAiResult } from '@/phr/imports/ai/aiImportsApi'
 import { type EhiDecision, ehiFailureText, EhiProposalSchema, reviewEhiProposal } from '@/phr/imports/ehi/ehiApi'
 import { proposalView } from '@/phr/imports/ehi/ehiProposalView'
@@ -10,9 +10,8 @@ import { isPhrPageId, type PhrPageId } from '@/phr/shell/phrRoutes'
 import { reviewStateChanged, ReviewSummarySchema, type ReviewSummaryState } from './reviewSummary'
 
 /**
- * The patient's review queue. Reading it is one request; each decision goes to the route
- * that already owns that kind of proposal, with that route's own checks: a clinical
- * record's review route (conditional on the version listed), the AI import accept and
+ * The patient's review queue. Clinical records share a bounded batch review route
+ * conditional on the versions listed. Proposals retain the AI import accept and
  * reject routes, and the EHI proposal review route (with its preview digest).
  */
 const SectionSchema = z.string().refine(isPhrPageId).transform((value) => value as PhrPageId)
@@ -175,11 +174,6 @@ export interface BatchOutcome {
   failed: Record<string, string>
 }
 
-/**
- * Decide each item in turn, the way the import reviews' "Accept all" does. One refusal
- * (a record changed since the page loaded, a proposal already decided) never stops the
- * rest; it is reported against its own row.
- */
 const RejectedSchema = z.object({ items: z.array(RecordItemSchema), can_manage: z.boolean() })
 export type RejectedMedications = z.infer<typeof RejectedSchema>
 
@@ -190,7 +184,26 @@ export async function getRejectedMedications(patientId: number): Promise<Rejecte
 
 export async function decideReviewItems(patientId: number, items: ReviewItem[], decision: ReviewDecision): Promise<BatchOutcome> {
   const outcome: BatchOutcome = { done: [], failed: {} }
+  const records = items.filter((item) => item.type === 'record')
+  const batchRecords = records.length > 1
+  // Keep the server's bounded request size even when several sections were selected.
+  for (let offset = 0; batchRecords && offset < records.length; offset += 100) {
+    const chunk = records.slice(offset, offset + 100)
+    try {
+      const result = await recordReviewDecisions(patientId, chunk.map((item) => ({ segment: item.review_segment, id: item.id, version: item.version })), decision === 'approve' ? 'confirmed' : 'rejected')
+      const completed = new Set(result.done.map((item) => `${item.segment}:${item.id}`))
+      const failed = new Map(result.failed.map((item) => [`${item.segment}:${item.id}`, item.error]))
+      for (const item of chunk) {
+        const identity = `${item.review_segment}:${item.id}`
+        if (completed.has(identity)) outcome.done.push(item.key)
+        else outcome.failed[item.key] = failed.get(identity) ?? 'This record was not reviewed. Reload and try again.'
+      }
+    } catch (caught) {
+      for (const item of chunk) outcome.failed[item.key] = ehiFailureText(caught)
+    }
+  }
   for (const item of items) {
+    if (item.type === 'record' && batchRecords) continue
     try {
       await decideReviewItem(patientId, item, decision)
       outcome.done.push(item.key)

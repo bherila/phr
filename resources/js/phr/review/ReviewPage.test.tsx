@@ -107,11 +107,10 @@ describe('ReviewPage', () => {
     expect(within(exported).getByRole('link', { name: 'Compare Synthetic vaccine B' })).toHaveAttribute('href', `/phr/imports?patient_id=${PATIENT}&ehi_package=9`)
   })
 
-  it('confirms the count, decides each item through its own route, and reports refusals per row', async () => {
+  it('confirms the count, batches clinical decisions, and reports refusals per row', async () => {
     mockGet.mockResolvedValueOnce(queue([ccda, ai, export_]))
     // The condition changed after the page loaded: its route refuses it.
-    mockPatch.mockImplementation((url: string) => (url.includes('/conditions/11/') ? Promise.reject('This record changed since it was loaded. Reload and review it again.') : Promise.resolve({})))
-    mockPost.mockResolvedValue({ outcome: 'accepted', result: { id: 31, status: 'imported' }, proposal: export_.items[0] && (export_.items[0] as { proposal: unknown }).proposal, record: null })
+    mockPost.mockResolvedValue({ done: [{ segment: 'medications', id: 12 }], failed: [{ segment: 'conditions', id: 11, error: 'This record changed since it was loaded. Reload and review it again.' }] })
     render(<ReviewPage patientId={PATIENT} />)
 
     const imported = await screen.findByRole('region', { name: 'C-CDA import · visit-summary.xml' })
@@ -123,8 +122,12 @@ describe('ReviewPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Approve 2' }))
 
     expect(await screen.findByText('Approved 1. 1 could not be approved; each says why below.')).toBeInTheDocument()
-    expect(mockPatch).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/conditions/11/review`, { review_status: 'confirmed', version: VERSION })
-    expect(mockPatch).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/medications/12/review`, { review_status: 'confirmed', version: VERSION })
+    expect(mockPost).toHaveBeenCalledTimes(1)
+    expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/review/records`, { review_status: 'confirmed', items: [
+      { segment: 'conditions', id: 11, version: VERSION },
+      { segment: 'medications', id: 12, version: VERSION },
+    ] })
+    expect(mockPatch).not.toHaveBeenCalled()
     const refused = await screen.findByRole('region', { name: 'C-CDA import · visit-summary.xml' })
     expect(within(refused).getByRole('alert')).toHaveTextContent('This record changed since it was loaded.')
     expect(mockGet).toHaveBeenCalledTimes(2)

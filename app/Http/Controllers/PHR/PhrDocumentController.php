@@ -17,6 +17,7 @@ use App\Services\PHR\Documents\PhrDocumentRelations;
 use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
+use App\Services\PHR\Review\ClinicalReviewDecisions;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrClinicalNote;
 use App\Support\PHR\PhrDocumentTags;
@@ -30,7 +31,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class PhrDocumentController extends Controller
 {
@@ -171,10 +171,7 @@ class PhrDocumentController extends Controller
                 ->where('patient_id', $resolvedPatient->id)
                 ->lockForUpdate()
                 ->findOrFail($document);
-            if ($expected !== null && ! hash_equals(app(AgentClinicalRecordVersion::class)->for($locked), $expected)) {
-                throw new ConflictHttpException('This document changed since it was loaded. Reload and review it again.');
-            }
-            $locked->update(['review_status' => $request->reviewStatus()]);
+            app(ClinicalReviewDecisions::class)->reviewLocked($locked, $request->reviewStatus(), $expected);
 
             return $locked;
         });
