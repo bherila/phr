@@ -43,7 +43,7 @@ describe('ImmunizationsPage editing', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Add immunization' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add immunization' }))
     expect(within(dialog).getByRole('textbox', { name: /Vaccine Name/ })).toHaveAttribute('aria-invalid', 'true')
-    expect(within(dialog).getByText("Enter the vaccine's name.")).toBeInTheDocument()
+    expect(within(dialog).getByRole('textbox', { name: /Vaccine Name/ })).toHaveAccessibleDescription("Enter the vaccine's name.")
     expect(mockPost).not.toHaveBeenCalled()
 
     fireEvent.change(within(dialog).getByRole('textbox', { name: /Vaccine Name/ }), { target: { value: 'Influenza' } })
@@ -62,5 +62,64 @@ describe('ImmunizationsPage editing', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('Lot L42')).toBeInTheDocument()
     expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/2/immunizations/5', expect.objectContaining({ lot_number: 'L42' }))
+  })
+})
+
+const limitedFields = [
+  ['vaccine_name', 'Vaccine Name *', 255],
+  ['cvx_code', 'CVX Code', 20],
+  ['manufacturer', 'Manufacturer', 100],
+  ['lot_number', 'Lot Number', 100],
+  ['site', 'Site', 100],
+  ['route', 'Route', 100],
+  ['administered_by', 'Administered By', 255],
+  ['facility_name', 'Facility', 255],
+  ['notes', 'Notes', 10000],
+] as const
+
+describe('Immunization dialog validation', () => {
+  it.each(limitedFields)('reports an over-long %s, focuses it, then saves a corrected value', async (field, label, limit) => {
+    mockPost.mockResolvedValue({ immunization: immunization({ id: 6 }) })
+    render(<ImmunizationsPage patientId={2} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add immunization' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add immunization' })
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Vaccine Name *' }), { target: { value: 'Synthetic vaccine' } })
+    const input = within(dialog).getByRole('textbox', { name: label })
+    expect(input).toHaveAttribute('maxLength', String(limit))
+    // Programmatic changes bypass the browser's maxLength, as can an existing record.
+    fireEvent.change(input, { target: { value: 'x'.repeat(limit + 1) } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add immunization' }))
+    expect(mockPost).not.toHaveBeenCalled()
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    const message = document.getElementById(input.getAttribute('aria-describedby') ?? '')
+    expect(message).toBeVisible()
+    expect(message).toHaveTextContent(`at most ${limit} characters.`)
+    expect(input).toHaveAccessibleDescription(message?.textContent ?? '')
+    expect(input).toHaveFocus()
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(message?.textContent ?? '')
+
+    const corrected = 'x'.repeat(limit)
+    fireEvent.change(input, { target: { value: corrected } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add immunization' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/phr/patients/2/immunizations', expect.objectContaining({ [field]: corrected })))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('keeps an over-long note visible when editing and focuses the first of multiple errors', async () => {
+    const notes = 'n'.repeat(10001)
+    mockGet.mockResolvedValue({ immunizations: [immunization({ cvx_code: 'c'.repeat(21), notes })], can_manage: true })
+    render(<ImmunizationsPage patientId={2} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Tdap' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit immunization' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(mockPatch).not.toHaveBeenCalled()
+    const codeInput = within(dialog).getByRole('textbox', { name: 'CVX Code' })
+    const notesInput = within(dialog).getByRole('textbox', { name: 'Notes' })
+    expect(codeInput).toHaveAccessibleDescription('CVX codes are at most 20 characters.')
+    expect(codeInput).toHaveFocus()
+    expect(notesInput).toHaveValue(notes)
+    expect(notesInput).toHaveAttribute('aria-invalid', 'true')
+    expect(notesInput).toHaveAccessibleDescription('Notes are at most 10000 characters.')
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Notes are at most 10000 characters.')
   })
 })

@@ -199,6 +199,7 @@ export function ConditionFormDialog({ condition = null, busy, error = null, onSu
       submitLabel={condition ? 'Save' : 'Add condition'}
       busy={busy}
       error={error}
+      fieldErrors={errors}
       onSubmit={(event) => void submit(event)}
       onClose={onClose}
       formRef={formRef}
