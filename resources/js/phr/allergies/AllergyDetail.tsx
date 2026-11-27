@@ -5,7 +5,8 @@ import { useEffect, useId, useState } from 'react'
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
-import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { RecordReviewBar } from '@/phr/clinical/RecordDetailParts'
+import type { PhrReviewDecision } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
@@ -168,7 +169,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-1 flex-col gap-4">
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
@@ -180,22 +181,14 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
           Allergy deleted.
         </div>
       )}
+      {allergy && canManage && <RecordReviewBar status={allergy.review_status} label={allergy.substance} busy={mutation === 'review'} disabled={mutation !== null} onReview={(decision: PhrReviewDecision) => void reviewAllergy(decision)} />}
       {allergy && (
-        <section className="rounded-lg border border-border bg-card p-4">
+        <section className="rounded-lg border border-border bg-card p-4 [overflow-wrap:anywhere]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg font-semibold text-card-foreground">{allergy.substance}</h2>
                 {reviewStatusBadge(allergy.review_status)}
-                {canManage && (
-                  <ReviewActions
-                    status={allergy.review_status}
-                    label={allergy.substance}
-                    busy={mutation === 'review'}
-                    disabled={mutation !== null && mutation !== 'review'}
-                    onReview={(decision) => void reviewAllergy(decision)}
-                  />
-                )}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">Allergy #{allergy.id}</p>
             </div>
@@ -212,7 +205,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
                   </>
                 ) : (
                   <>
-                    <Button type="button" variant="outline" size="sm" disabled={mutation !== null} onClick={startEditing}>
+                    <Button type="button" variant="outline" size="sm" className="max-lg:h-11" disabled={mutation !== null} onClick={startEditing}>
                       <Pencil className="size-4" />
                       Edit
                     </Button>
@@ -297,6 +290,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
           )}
         </section>
       )}
+
     </div>
   )
 }

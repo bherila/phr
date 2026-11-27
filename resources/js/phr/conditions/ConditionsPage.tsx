@@ -1,7 +1,8 @@
-import { Activity, CheckCircle2, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Activity, CheckCircle2, ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_WIDE_BLOCK, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import type { StatusTone } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
@@ -9,7 +10,8 @@ import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
-import { codeChip, labelize, reviewStatusBadge, statusBadge } from '@/phr/clinical/ui'
+import { ReviewDot } from '@/phr/clinical/ReviewDot'
+import { codeChip, labelize, statusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -111,22 +113,32 @@ function ConditionsTable({
       className: 'px-4 py-3',
       cell: (condition) => (
         <>
-          <div className="font-medium text-card-foreground">{condition.name}</div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {codeChip('ICD-10', condition.icd10_code)}
-            {codeChip('SNOMED', condition.snomed_code)}
-            {condition.severity && (
-              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                {condition.severity}
-              </span>
-            )}
+          <div className="flex items-start gap-2">
+            <span className="shrink-0 pt-1.5"><ReviewDot status={condition.review_status} /></span>
+            <span className="font-medium text-card-foreground [overflow-wrap:anywhere]">{condition.name}</span>
           </div>
-          {condition.notes && <p className="mt-2 text-xs text-muted-foreground">{condition.notes}</p>}
+          <div className={`${RECORD_ONLY_BELOW_MEDIUM} mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground [overflow-wrap:anywhere] [&_span]:whitespace-normal`}>
+            {statusBadge(condition.clinical_status, STATUS_TONE)}
+            {condition.onset_date && <span>Onset {formatDate(condition.onset_date)}</span>}
+          </div>
+          <div className={RECORD_ONLY_WIDE_BLOCK}>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {codeChip('ICD-10', condition.icd10_code)}
+              {codeChip('SNOMED', condition.snomed_code)}
+              {condition.severity && (
+                <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {condition.severity}
+                </span>
+              )}
+            </div>
+            {condition.notes && <p className="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">{condition.notes}</p>}
+          </div>
         </>
       ),
     },
     {
       id: 'dates',
+      showFrom: 'medium',
       header: 'Dates',
       fit: true,
       headerClassName: 'px-4 py-3 font-medium',
@@ -141,13 +153,12 @@ function ConditionsTable({
     {
       id: 'status',
       header: 'Status',
-      fit: true,
+      showFrom: 'medium',
       headerClassName: 'px-4 py-3 font-medium',
       className: 'px-4 py-3',
       cell: (condition) => (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 [overflow-wrap:anywhere] [&_span]:whitespace-normal">
           {statusBadge(condition.clinical_status, STATUS_TONE)}
-          {reviewStatusBadge(condition.review_status)}
           <span className="text-xs text-muted-foreground">{labelize(condition.verification_status)}</span>
         </div>
       ),
@@ -157,6 +168,7 @@ function ConditionsTable({
     columns.push({
       id: 'actions',
       header: 'Actions',
+      showFrom: 'wide',
       fit: true,
       headerClassName: 'px-4 py-3 font-medium text-right',
       className: 'px-4 py-3',
@@ -184,29 +196,14 @@ function ConditionsTable({
               disabled={busyFor(condition)}
               onReview={(decision) => onReview(condition.id, decision)}
             />
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              title={`Edit ${condition.name}`}
-              aria-label={`Edit ${condition.name}`}
+            <RowActionsMenu
+              label={condition.name}
               disabled={busyFor(condition)}
-              onClick={() => onStartEdit(condition)}
-            >
-              <Pencil className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              title={`Delete ${condition.name}`}
-              aria-label={`Delete ${condition.name}`}
-              disabled={busyFor(condition)}
-              onClick={() => onStartDelete(condition.id)}
-            >
-              <Trash2 className="size-4" />
-            </Button>
+              actions={[
+                { label: 'Edit', onSelect: () => onStartEdit(condition) },
+                { label: 'Delete', destructive: true, onSelect: () => onStartDelete(condition.id) },
+              ]}
+            />
           </div>
         )
       },

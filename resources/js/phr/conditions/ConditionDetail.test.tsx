@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
+import { recordChanged } from '@/phr/clinical/recordChanges'
 import { PhrPatientsProvider } from '@/phr/patients/usePhrPatients'
 
 import ConditionDetail from './ConditionDetail'
@@ -93,4 +94,46 @@ describe('ConditionDetail', () => {
     expect(screen.queryByRole('button', { name: 'Edit Asthma' })).toBeNull()
     expect(screen.queryByRole('button', { name: /More actions/ })).toBeNull()
   })
+})
+
+
+it('resolves from detail without replacing a recorded abated date, and notifies the list', async () => {
+  serve()
+  mockGetRaw.mockResolvedValue(jsonResponse({ condition: condition({ abated_date: '2026-01-03' }) }))
+  mockPatch.mockResolvedValue({ condition: condition({ clinical_status: 'resolved', abated_date: '2026-01-03' }) })
+  const listener = jest.fn()
+  window.addEventListener('phr:record-changed', listener)
+  render(<PhrPatientsProvider><ConditionDetail patientId={2} recordId="21" /></PhrPatientsProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'More actions for Asthma' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Resolve' }))
+  await screen.findByText('resolved')
+  expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/2/conditions/21', { clinical_status: 'resolved', abated_date: '2026-01-03' })
+  expect(listener).toHaveBeenCalledWith(expect.objectContaining({ detail: { resource: 'conditions', patientId: 2, recordId: 21, origin: 'detail' } }))
+  window.removeEventListener('phr:record-changed', listener)
+})
+
+it('keeps a refused review available and then records the existing review endpoint', async () => {
+  serve()
+  mockGetRaw.mockResolvedValue(jsonResponse({ condition: condition({ review_status: 'pending_review' }) }))
+  mockPatch.mockRejectedValueOnce('Synthetic review conflict').mockResolvedValueOnce({ condition: condition() })
+  render(<PhrPatientsProvider><ConditionDetail patientId={2} recordId="21" /></PhrPatientsProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve Asthma' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Synthetic review conflict')
+  fireEvent.click(screen.getByRole('button', { name: 'Approve Asthma' }))
+  await waitFor(() => expect(screen.queryByTestId('record-review-bar')).not.toBeInTheDocument())
+  expect(mockPatch).toHaveBeenCalledTimes(2)
+  expect(mockPatch).toHaveBeenLastCalledWith('/api/phr/patients/2/conditions/21/review', { review_status: 'confirmed' })
+})
+
+it('does not expose review to viewers and reloads only matching list changes', async () => {
+  serve(false)
+  mockGetRaw.mockResolvedValue(jsonResponse({ condition: condition({ review_status: 'pending_review' }) }))
+  render(<PhrPatientsProvider><ConditionDetail patientId={2} recordId="21" /></PhrPatientsProvider>)
+  await screen.findByRole('heading', { name: 'Asthma' })
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  act(() => recordChanged({ resource: 'conditions', patientId: 99, recordId: 21, origin: 'list' }))
+  expect(mockGetRaw).toHaveBeenCalledTimes(1)
+  mockGetRaw.mockResolvedValue(jsonResponse({ condition: condition({ name: 'Updated condition' }) }))
+  act(() => recordChanged({ resource: 'conditions', patientId: 2, recordId: 21, origin: 'list' }))
+  await screen.findByRole('heading', { name: 'Updated condition' })
 })

@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+
+import { recordChanged } from '@/phr/clinical/recordChanges'
 
 import ImmunizationDetail from './ImmunizationDetail'
 
@@ -95,5 +97,77 @@ describe('ImmunizationDetail', () => {
     expect(await screen.findByRole('heading', { name: 'SYNTHETIC VACCINE A' })).toBeInTheDocument()
     expect(definition('Dose in series')).toHaveTextContent('1')
     expect(definition('Dose amount')).toHaveTextContent('Not recorded')
+  })
+})
+
+
+describe('Immunization detail actions remain reachable when list actions disappear', () => {
+  beforeEach(() => { jest.clearAllMocks() })
+  afterEach(() => { jest.restoreAllMocks() })
+
+  it('reuses the edit dialog, keeps refused edits, and notifies the list after saving', async () => {
+    let refused = true
+    const listener = jest.fn()
+    window.addEventListener('phr:record-changed', listener)
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => {
+      if (options?.method === 'PATCH') {
+        if (refused) {
+          refused = false
+          return { ...jsonResponse({ message: 'Synthetic save conflict' }), ok: false, status: 409 }
+        }
+        return jsonResponse({ immunization: { ...IMMUNIZATION, lot_number: 'UPDATED-LOT' } })
+      }
+      return jsonResponse({ immunization: IMMUNIZATION, can_manage: true })
+    })
+    render(<ImmunizationDetail patientId={42} recordId="31" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit SYNTHETIC VACCINE A' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit immunization' })
+    fireEvent.change(within(dialog).getByLabelText('Lot Number'), { target: { value: 'UPDATED-LOT' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Synthetic save conflict')
+    expect(within(dialog).getByLabelText('Lot Number')).toHaveValue('UPDATED-LOT')
+    expect(listener).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByText('UPDATED-LOT')).toBeInTheDocument()
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ detail: { resource: 'immunizations', patientId: 42, recordId: 31, origin: 'detail' } }))
+    expect(fetchMock.mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(2)
+    window.removeEventListener('phr:record-changed', listener)
+  })
+
+  it('asks before deleting and returns to the immunizations list after success', async () => {
+    const onDrill = jest.fn()
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => options?.method === 'DELETE'
+      ? jsonResponse({}) : jsonResponse({ immunization: IMMUNIZATION, can_manage: true }))
+    render(<ImmunizationDetail patientId={42} recordId="31" onDrill={onDrill} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions for SYNTHETIC VACCINE A' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Delete this immunization?' })
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(onDrill).toHaveBeenCalledWith({ id: 'immunizations' }))
+    expect(fetchMock.mock.calls.find(([, options]) => options?.method === 'DELETE')?.[0]).toBe('/api/phr/patients/42/immunizations/31')
+  })
+
+  it('reviews through the existing endpoint and reloads after a matching list edit', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => jsonResponse({
+      immunization: { ...IMMUNIZATION, review_status: options?.method === 'PATCH' ? 'confirmed' : 'pending_review' }, can_manage: true,
+    }))
+    render(<ImmunizationDetail patientId={42} recordId="31" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve SYNTHETIC VACCINE A' }))
+    await waitFor(() => expect(screen.queryByTestId('record-review-bar')).not.toBeInTheDocument())
+    expect(fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH')?.[0]).toBe('/api/phr/patients/42/immunizations/31/review')
+    fetchMock.mockResolvedValue(jsonResponse({ immunization: { ...IMMUNIZATION, vaccine_name: 'UPDATED VACCINE' }, can_manage: true }))
+    act(() => recordChanged({ resource: 'immunizations', patientId: 99, recordId: 31, origin: 'list' }))
+    expect(screen.queryByRole('heading', { name: 'UPDATED VACCINE' })).not.toBeInTheDocument()
+    act(() => recordChanged({ resource: 'immunizations', patientId: 42, recordId: 31, origin: 'list' }))
+    await screen.findByRole('heading', { name: 'UPDATED VACCINE' })
+  })
+
+  it('keeps read-only details free of mutation controls', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ immunization: { ...IMMUNIZATION, review_status: 'pending_review' }, can_manage: false }))
+    render(<ImmunizationDetail patientId={42} recordId="31" />)
+    await screen.findByRole('heading', { name: 'SYNTHETIC VACCINE A' })
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

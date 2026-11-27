@@ -8,10 +8,13 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
-import { DETAIL_ICON_BUTTON } from '@/phr/clinical/RecordDetailParts'
+import { DETAIL_ICON_BUTTON, RecordReviewBar } from '@/phr/clinical/RecordDetailParts'
+import type { PhrReviewDecision } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
-import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { compactPayload, errorMessage, fetchPhrDetail } from '@/phr/shared'
 import type { PhrDetailPageProps } from '@/phr/shell/phrPages'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrCondition, type PhrConditionFormData, PhrConditionResponseSchema } from '@/phr/types'
@@ -31,7 +34,7 @@ export default function ConditionDetail({ patientId, recordId, onDrill }: PhrDet
   const [notFound, setNotFound] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [mutating, setMutating] = useState<'save' | 'delete' | null>(null)
+  const [mutating, setMutating] = useState<'save' | 'delete' | 'review' | 'resolve' | null>(null)
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
@@ -87,6 +90,29 @@ export default function ConditionDetail({ patientId, recordId, onDrill }: PhrDet
     }
   }
 
+  async function change(kind: 'review' | 'resolve', write: () => Promise<unknown>): Promise<void> {
+    if (!condition) return
+    setMutating(kind)
+    setError(null)
+    try {
+      setCondition(PhrConditionResponseSchema.parse(await write()).condition)
+      recordChanged({ resource: RESOURCE, patientId, recordId: condition.id, origin: 'detail' })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  function resolve(): void {
+    if (!condition) return
+    const today = new Date()
+    const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    void change('resolve', () => fetchWrapper.patch(endpoint, compactPayload({
+      clinical_status: 'resolved', abated_date: condition.abated_date ?? date,
+    })))
+  }
+
   async function remove(): Promise<void> {
     if (!condition) return
     setMutating('delete')
@@ -111,19 +137,23 @@ export default function ConditionDetail({ patientId, recordId, onDrill }: PhrDet
   const dialogOpen = editing || confirmingDelete
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-1 flex-col gap-4">
       {error && !dialogOpen && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </div>
       )}
       {busy && !condition && <DetailSkeleton label="Loading condition" facts={4} rows={0} />}
+      {condition && canManage && (
+        <RecordReviewBar status={condition.review_status} label={condition.name} busy={mutating === 'review'} disabled={mutating !== null} onReview={(decision: PhrReviewDecision) => void change('review', () => recordReviewDecision(endpoint, decision))} />
+      )}
       {condition && (
-        <section className="rounded-lg border border-border bg-card p-4">
+        <section className="rounded-lg border border-border bg-card p-4 [overflow-wrap:anywhere]">
           <div className="flex items-start gap-1">
             <div className="min-w-0 flex-1">
               <h2 className="text-lg font-semibold text-card-foreground">{condition.name}</h2>
               <p className="mt-1 text-sm text-muted-foreground">Condition #{condition.id}</p>
+              <div className={canManage ? 'mt-1 lg:hidden' : 'mt-1'}>{reviewStatusBadge(condition.review_status)}</div>
             </div>
             {canManage && (
               <>
@@ -134,7 +164,10 @@ export default function ConditionDetail({ patientId, recordId, onDrill }: PhrDet
                   label={condition.name}
                   disabled={mutating !== null}
                   triggerClassName={DETAIL_ICON_BUTTON}
-                  actions={[{ label: 'Delete', destructive: true, onSelect: () => { setError(null); setConfirmingDelete(true) } }]}
+                  actions={[
+                    ...(condition.clinical_status !== 'resolved' ? [{ label: 'Resolve', onSelect: resolve }] : []),
+                    { label: 'Delete', destructive: true, onSelect: () => { setError(null); setConfirmingDelete(true) } },
+                  ]}
                 />
               </>
             )}
@@ -198,6 +231,7 @@ export default function ConditionDetail({ patientId, recordId, onDrill }: PhrDet
           />
         </section>
       )}
+
     </div>
   )
 }

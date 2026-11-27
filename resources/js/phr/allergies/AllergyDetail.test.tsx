@@ -97,3 +97,16 @@ describe('AllergyDetail', () => {
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
   })
 })
+
+
+it('keeps the detail review bar actionable and uses the allergy review endpoint', async () => {
+  jest.clearAllMocks()
+  const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => jsonResponse({
+    allergy: { ...ALLERGY, review_status: options?.method === 'PATCH' ? 'confirmed' : 'pending_review' }, can_manage: true,
+  }))
+  render(<AllergyDetail patientId={42} recordId="17" />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve Synthetic allergen' }))
+  await waitFor(() => expect(screen.queryByTestId('record-review-bar')).not.toBeInTheDocument())
+  expect(fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH')?.[0]).toBe('/api/phr/patients/42/allergies/17/review')
+  jest.restoreAllMocks()
+})
