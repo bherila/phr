@@ -1,5 +1,5 @@
 import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
@@ -50,7 +50,15 @@ interface ImmunizationFormFieldsProps {
 
 /** The form's own words for what Zod would otherwise report in its own. */
 const FIELD_MESSAGES: FieldErrors<PhrImmunizationFormData> = {
-  vaccine_name: "Enter the vaccine's name.",
+  vaccine_name: 'Vaccine names are at most 255 characters.',
+  cvx_code: 'CVX codes are at most 20 characters.',
+  manufacturer: 'Manufacturers are at most 100 characters.',
+  lot_number: 'Lot numbers are at most 100 characters.',
+  site: 'Sites are at most 100 characters.',
+  route: 'Routes are at most 100 characters.',
+  administered_by: 'Administered by is at most 255 characters.',
+  facility_name: 'Facilities are at most 255 characters.',
+  notes: 'Notes are at most 10000 characters.',
 }
 
 function immunizationFormFromRecord(immunization: PhrImmunization): PhrImmunizationFormData {
@@ -93,64 +101,65 @@ function doseLabel(immunization: PhrImmunization): string {
   return parts.length > 0 ? parts.join(' · ') : 'Dose not recorded'
 }
 
+function ImmunizationField({ id, label, error, children, wide = false }: {
+  id: string
+  label: string
+  error?: string | undefined
+  children: ReactNode
+  wide?: boolean
+}) {
+  return (
+    <div className={`grid gap-1 ${wide ? 'md:col-span-2' : ''}`}>
+      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      {children}
+      {error && <p id={`${id}-error`} className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
 function ImmunizationFormFields({ form, onChange, errors = {} }: ImmunizationFormFieldsProps) {
-  const errorId = useId()
+  const id = useId()
+  const invalid = (field: keyof PhrImmunizationFormData): { 'aria-invalid'?: true, 'aria-describedby'?: string } => (
+    errors[field] ? { 'aria-invalid': true, 'aria-describedby': `${id}-${field}-error` } : {}
+  )
   return (
     <div className="grid gap-3 md:grid-cols-2">
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Vaccine Name *
-        <Input
-          value={form.vaccine_name}
-          maxLength={255}
-          onChange={(event) => onChange({ ...form, vaccine_name: event.target.value })}
-          {...(errors.vaccine_name ? { 'aria-invalid': true, 'aria-describedby': errorId } : {})}
-        />
-        {errors.vaccine_name && <span id={errorId} className="text-xs font-normal text-destructive">{errors.vaccine_name}</span>}
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Administered On
-        <Input type="date" value={form.administered_on} onChange={(event) => onChange({ ...form, administered_on: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        CVX Code
-        <Input value={form.cvx_code} onChange={(event) => onChange({ ...form, cvx_code: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Manufacturer
-        <Input value={form.manufacturer} onChange={(event) => onChange({ ...form, manufacturer: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Lot Number
-        <Input value={form.lot_number} onChange={(event) => onChange({ ...form, lot_number: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Dose Number
-        <Input inputMode="numeric" value={form.dose_number} onChange={(event) => onChange({ ...form, dose_number: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Series Doses
-        <Input inputMode="numeric" value={form.series_doses} onChange={(event) => onChange({ ...form, series_doses: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Site
-        <Input value={form.site} onChange={(event) => onChange({ ...form, site: event.target.value })} placeholder="Left deltoid" />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Route
-        <Input value={form.route} onChange={(event) => onChange({ ...form, route: event.target.value })} placeholder="IM" />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Administered By
-        <Input value={form.administered_by} onChange={(event) => onChange({ ...form, administered_by: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Facility
-        <Input value={form.facility_name} onChange={(event) => onChange({ ...form, facility_name: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Notes
-        <Textarea value={form.notes} onChange={(event) => onChange({ ...form, notes: event.target.value })} />
-      </label>
+      <ImmunizationField id={`${id}-vaccine_name`} label="Vaccine Name *" error={errors.vaccine_name} wide>
+        <Input id={`${id}-vaccine_name`} value={form.vaccine_name} maxLength={255} onChange={(event) => onChange({ ...form, vaccine_name: event.target.value })} {...invalid('vaccine_name')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-administered_on`} label="Administered On" error={errors.administered_on}>
+        <Input id={`${id}-administered_on`} value={form.administered_on} type="date" onChange={(event) => onChange({ ...form, administered_on: event.target.value })} {...invalid('administered_on')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-cvx_code`} label="CVX Code" error={errors.cvx_code}>
+        <Input id={`${id}-cvx_code`} value={form.cvx_code} maxLength={20} onChange={(event) => onChange({ ...form, cvx_code: event.target.value })} {...invalid('cvx_code')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-manufacturer`} label="Manufacturer" error={errors.manufacturer}>
+        <Input id={`${id}-manufacturer`} value={form.manufacturer} maxLength={100} onChange={(event) => onChange({ ...form, manufacturer: event.target.value })} {...invalid('manufacturer')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-lot_number`} label="Lot Number" error={errors.lot_number}>
+        <Input id={`${id}-lot_number`} value={form.lot_number} maxLength={100} onChange={(event) => onChange({ ...form, lot_number: event.target.value })} {...invalid('lot_number')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-dose_number`} label="Dose Number" error={errors.dose_number}>
+        <Input id={`${id}-dose_number`} value={form.dose_number} inputMode="numeric" onChange={(event) => onChange({ ...form, dose_number: event.target.value })} {...invalid('dose_number')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-series_doses`} label="Series Doses" error={errors.series_doses}>
+        <Input id={`${id}-series_doses`} value={form.series_doses} inputMode="numeric" onChange={(event) => onChange({ ...form, series_doses: event.target.value })} {...invalid('series_doses')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-site`} label="Site" error={errors.site}>
+        <Input id={`${id}-site`} value={form.site} maxLength={100} placeholder="Left deltoid" onChange={(event) => onChange({ ...form, site: event.target.value })} {...invalid('site')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-route`} label="Route" error={errors.route}>
+        <Input id={`${id}-route`} value={form.route} maxLength={100} placeholder="IM" onChange={(event) => onChange({ ...form, route: event.target.value })} {...invalid('route')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-administered_by`} label="Administered By" error={errors.administered_by}>
+        <Input id={`${id}-administered_by`} value={form.administered_by} maxLength={255} onChange={(event) => onChange({ ...form, administered_by: event.target.value })} {...invalid('administered_by')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-facility_name`} label="Facility" error={errors.facility_name}>
+        <Input id={`${id}-facility_name`} value={form.facility_name} maxLength={255} onChange={(event) => onChange({ ...form, facility_name: event.target.value })} {...invalid('facility_name')} />
+      </ImmunizationField>
+      <ImmunizationField id={`${id}-notes`} label="Notes" error={errors.notes} wide>
+        <Textarea id={`${id}-notes`} value={form.notes} maxLength={10000} onChange={(event) => onChange({ ...form, notes: event.target.value })} {...invalid('notes')} />
+      </ImmunizationField>
     </div>
   )
 }
@@ -174,7 +183,10 @@ function ImmunizationFormDialog({ immunization, busy, error, onSubmit, onClose }
     event.preventDefault()
     const parsed = PhrImmunizationFormSchema.safeParse(form)
     if (!parsed.success) {
-      setErrors(fieldErrorsFrom(parsed.error, FIELD_MESSAGES))
+      setErrors(fieldErrorsFrom(parsed.error, {
+        ...FIELD_MESSAGES,
+        ...(!form.vaccine_name.trim() ? { vaccine_name: "Enter the vaccine's name." } : {}),
+      }))
       return
     }
     setErrors({})
@@ -188,6 +200,7 @@ function ImmunizationFormDialog({ immunization, busy, error, onSubmit, onClose }
       submitLabel={immunization ? 'Save' : 'Add immunization'}
       busy={busy}
       error={error}
+      fieldErrors={errors}
       onSubmit={(event) => void submit(event)}
       onClose={onClose}
       formRef={formRef}
