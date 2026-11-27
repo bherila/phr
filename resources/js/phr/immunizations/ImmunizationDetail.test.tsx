@@ -37,10 +37,10 @@ const IMMUNIZATION = {
   updated_at: null,
 }
 
-function jsonResponse(payload: unknown): Response {
+function jsonResponse(payload: unknown, status = 200): Response {
   return {
-    ok: true,
-    status: 200,
+    ok: status >= 200 && status < 300,
+    status,
     statusText: 'OK',
     text: async () => JSON.stringify(payload),
   } as Response
@@ -113,7 +113,7 @@ describe('Immunization detail actions remain reachable when list actions disappe
       if (options?.method === 'PATCH') {
         if (refused) {
           refused = false
-          return { ...jsonResponse({ message: 'Synthetic save conflict' }), ok: false, status: 409 }
+          return jsonResponse({ message: 'Synthetic save conflict' }, 409)
         }
         return jsonResponse({ immunization: { ...IMMUNIZATION, lot_number: 'UPDATED-LOT' } })
       }

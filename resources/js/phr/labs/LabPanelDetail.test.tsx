@@ -9,7 +9,8 @@ const mockFetch = jest.fn()
 beforeEach(() => {
   mockFetch.mockReset()
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    const id = /\/lab-results\/(\d+)$/.exec(String(input))?.[1]
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const id = /\/lab-results\/(\d+)$/.exec(url)?.[1]
     if (id) {
       return Promise.resolve({ ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify({
         lab_result: {
