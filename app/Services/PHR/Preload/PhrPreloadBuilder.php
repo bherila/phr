@@ -74,6 +74,7 @@ final class PhrPreloadBuilder
         PhrEhiImportController::class.'@pending',
         LabResultController::class.'@index',
         LabResultController::class.'@showPanel',
+        LabResultController::class.'@show',
         VitalController::class.'@index',
         VitalController::class.'@show',
         VitalController::class.'@trend',

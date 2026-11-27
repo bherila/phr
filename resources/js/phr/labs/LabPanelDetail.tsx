@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { z } from 'zod'
 
 import { RECORD_FIT_CLASS, RECORD_NUMERIC_CLASS } from '@/components/record-list/RecordTable'
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { formatDate } from '@/lib/dateFormat'
 import { displayUnits } from '@/lib/measureUnits'
+import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
+import { RecordReviewBar } from '@/phr/clinical/RecordDetailParts'
+import type { PhrReviewDecision } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -11,6 +17,8 @@ import {
   type PhrLabPanel,
   PhrLabPanelDetailResponseSchema,
   type PhrLabPanelResultRow,
+  type PhrLabResult,
+  PhrLabResultResponseSchema,
 } from '@/phr/types'
 
 interface LabPanelDetailProps {
@@ -36,48 +44,96 @@ function trendLabel(trend: PhrLabPanelResultRow['trend']): string {
   return trend === 'up' ? '↑' : trend === 'down' ? '↓' : trend === 'flat' ? '→' : '—'
 }
 
+const ReviewResponseSchema = PhrLabResultResponseSchema.extend({ can_manage: z.boolean().default(false) })
+
 export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [panel, setPanel] = useState<PhrLabPanel | null>(null)
 
-  const load = useCallback(async () => {
+  const [anchor, setAnchor] = useState<PhrLabResult | null>(null)
+  const [canManage, setCanManage] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
+  const generation = useRef(0)
+  const invalidateRequests = useCallback(() => { generation.current++ }, [])
+  const endpoint = `/api/phr/patients/${patientId}/lab-results/${recordId}`
+
+  const load = useCallback(async (): Promise<void> => {
+    const current = ++generation.current
     setBusy(true)
     setError(null)
     setNotFound(false)
-
+    setReviewing(false)
     try {
-      const result = await fetchPhrDetail(
-        `/api/phr/patients/${patientId}/labs/${recordId}`,
-        PhrLabPanelDetailResponseSchema,
-      )
-      setNotFound(result.notFound)
+      const [result, selected] = await Promise.all([
+        fetchPhrDetail(`/api/phr/patients/${patientId}/labs/${recordId}`, PhrLabPanelDetailResponseSchema),
+        fetchPhrDetail(endpoint, ReviewResponseSchema),
+      ])
+      if (current !== generation.current) return
+      setNotFound(result.notFound || selected.notFound)
       setPanel(result.data?.panel ?? null)
+      setAnchor(selected.data?.lab_result ?? null)
+      setCanManage(selected.data?.can_manage ?? false)
     } catch (err) {
+      if (current !== generation.current) return
       setError(errorMessage(err))
+      setAnchor(null)
+      setCanManage(false)
     } finally {
-      setBusy(false)
+      if (current === generation.current) setBusy(false)
     }
-  }, [patientId, recordId])
+  }, [patientId, recordId, endpoint])
 
   useEffect(() => {
+    setPanel(null)
+    setAnchor(null)
+    setCanManage(false)
     void load()
-  }, [load])
+    return invalidateRequests
+  }, [load, invalidateRequests])
+  useRecordChanges('lab-results', patientId, 'list', (id) => {
+    if (String(id) === recordId || panel?.rows.some((row) => row.id === id)) void load()
+  })
+
+  async function review(decision: PhrReviewDecision): Promise<void> {
+    if (!anchor || !canManage || reviewing || busy) return
+    const current = generation.current
+    const id = anchor.id
+    setReviewing(true)
+    setError(null)
+    try {
+      const raw = await recordReviewDecision(endpoint, decision)
+      if (current !== generation.current) return
+      setAnchor(PhrLabResultResponseSchema.parse(raw).lab_result)
+      recordChanged({ resource: 'lab-results', patientId, recordId: id, origin: 'detail' })
+    } catch (caught) {
+      if (current === generation.current) setError(errorMessage(caught))
+    } finally {
+      if (current === generation.current) setReviewing(false)
+    }
+  }
 
   if (notFound) {
     return <PhrRecordNotFound />
   }
 
   return (
-    <div className="@container space-y-4">
+    <div className="@container flex min-h-full flex-col gap-4 wrap-anywhere">
       {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </div>
       )}
 
       {busy && !panel && <DetailSkeleton label="Loading lab panel" />}
+
+      {anchor && (
+        <section aria-label="Selected result review" className="contents">
+          <p className="text-sm text-muted-foreground">Selected result: {anchor.analyte ?? anchor.test_name ?? 'Lab result'}</p>
+          {canManage ? <RecordReviewBar status={anchor.review_status} label={anchor.analyte ?? anchor.test_name ?? 'selected lab result'} busy={reviewing || busy} onReview={(decision) => void review(decision)} /> : reviewStatusBadge(anchor.review_status)}
+        </section>
+      )}
 
       {panel && (
         <>
@@ -106,9 +162,9 @@ export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailPr
           <ul aria-label="Results" className="divide-y divide-border rounded-lg border border-border text-sm @min-[520px]:hidden" data-layout="stacked">
             {panel.rows.map((row) => (
               <li key={row.id} className="grid gap-0.5 px-3 py-2">
-                <div className="flex items-baseline justify-between gap-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <span className="min-w-0 font-medium text-foreground">{row.analyte ?? '—'}</span>
-                  <span className={`shrink-0 whitespace-nowrap ${isNumericLabValue(row) ? 'tabular-nums' : ''} ${flagClass(row.abnormal_flag)}`}>
+                  <span data-lab-value="" className={`min-w-0 wrap-anywhere ${isNumericLabValue(row) ? 'tabular-nums' : ''} ${flagClass(row.abnormal_flag)}`}>
                     {formatLabValue(row) ?? '—'}
                     {row.unit && <span className="ml-1 text-xs text-muted-foreground">{displayUnits(row.unit)}</span>}
                   </span>
@@ -139,7 +195,7 @@ export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailPr
                 {panel.rows.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-0">
                     <td className="px-3 py-2 font-medium text-foreground">{row.analyte ?? '—'}</td>
-                    <td className={`px-3 py-2 ${RECORD_FIT_CLASS} ${isNumericLabValue(row) ? RECORD_NUMERIC_CLASS : ''} ${flagClass(row.abnormal_flag)}`}>
+                    <td className={`px-3 py-2 ${isNumericLabValue(row) ? RECORD_FIT_CLASS : 'wrap-anywhere'} ${isNumericLabValue(row) ? RECORD_NUMERIC_CLASS : ''} ${flagClass(row.abnormal_flag)}`}>
                       {formatLabValue(row) ?? '—'}
                       {row.unit && <span className="ml-1 text-xs text-muted-foreground">{displayUnits(row.unit)}</span>}
                     </td>

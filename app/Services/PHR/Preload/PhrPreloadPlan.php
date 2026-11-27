@@ -153,7 +153,7 @@ final readonly class PhrPreloadPlan
         }
 
         return match ($module) {
-            'lab-panel-detail' => ["{$base}/labs/{$id}"],
+            'lab-panel-detail' => ["{$base}/labs/{$id}", "{$base}/lab-results/{$id}"],
             'vitals-reading-detail' => ["{$base}/vitals/{$id}"],
             'imaging-study-detail' => ["{$base}/dicom/studies/{$id}", "{$base}/dicom/studies/{$id}/viewer-json"],
             'office-visit-detail' => ["{$base}/office-visits/{$id}"],

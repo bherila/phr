@@ -2,15 +2,17 @@ import { FlaskConical, Plus } from 'lucide-react'
 import type { ComponentProps, FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
 import { displayUnits } from '@/lib/measureUnits'
+import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { ReviewDot } from '@/phr/clinical/ReviewDot'
 import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
@@ -139,10 +141,23 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
       header: 'Analyte',
       headerClassName: HEAD,
       className: 'px-3 py-2 font-medium text-foreground',
-      cell: (result) => result.analyte ?? '—',
+      cell: (result) => (
+        <div className="flex min-w-0 items-start gap-2 wrap-anywhere">
+          <span className={`shrink-0 pt-1.5 ${RECORD_ONLY_BELOW_WIDE}`}><ReviewDot status={result.review_status} /></span>
+          <div className="min-w-0">
+            <div>{result.analyte ?? '—'}</div>
+            {showPanelColumn && result.test_name && <div className={`mt-0.5 text-xs font-normal text-muted-foreground ${RECORD_ONLY_BELOW_WIDE}`}>{result.test_name}</div>}
+            <div className={`mt-0.5 flex flex-wrap gap-x-2 text-xs font-normal text-muted-foreground ${RECORD_ONLY_BELOW_MEDIUM}`}>
+              <span className={flagClass(result.abnormal_flag)}>{formatLabValue(result) ?? '—'} {displayUnits(result.unit)} {result.abnormal_flag !== 'N' ? result.abnormal_flag : ''}</span>
+              <span>{formatDate(result.result_datetime ?? result.collection_datetime) || 'No date'}</span>
+            </div>
+          </div>
+        </div>
+      ),
     },
     ...(showPanelColumn ? [{
       id: 'panel',
+      showFrom: 'wide',
       header: 'Panel',
       headerClassName: HEAD,
       className: 'px-3 py-2 text-muted-foreground',
@@ -150,11 +165,11 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
     }] : []),
     {
       id: 'value',
+      showFrom: 'medium',
       header: 'Value',
       headerClassName: HEAD,
-      fit: true,
       numeric: isNumericLabValue,
-      className: 'px-3 py-2',
+      className: 'px-3 py-2 wrap-anywhere',
       cell: (result) => (
         <span className={flagClass(result.abnormal_flag)}>
           {formatLabValue(result) ?? '—'}
@@ -162,9 +177,10 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
         </span>
       ),
     },
-    { id: 'range', header: 'Range', fit: true, headerClassName: HEAD, className: 'px-3 py-2 text-muted-foreground', cell: (result) => formatLabReferenceRange(result) ?? '—' },
+    { id: 'range', header: 'Range', showFrom: 'wide', headerClassName: HEAD, className: 'px-3 py-2 text-muted-foreground', cell: (result) => formatLabReferenceRange(result) ?? '—' },
     {
       id: 'flag',
+      showFrom: 'medium',
       header: 'Flag',
       headerClassName: `${HEAD} text-center`,
       fit: true,
@@ -173,6 +189,7 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
     },
     {
       id: 'date',
+      showFrom: 'medium',
       header: 'Date',
       fit: true,
       headerClassName: HEAD,
@@ -181,6 +198,7 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
     },
     {
       id: 'review',
+      showFrom: 'wide',
       header: 'Review',
       showWhenAnyRow: (result) => reviewStatusNeedsAttention(result.review_status),
       fit: true,
@@ -326,6 +344,7 @@ export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPage
   useEffect(() => {
     void load()
   }, [load])
+  useRecordChanges('lab-results', patientId, 'detail', () => void load())
 
   async function reviewResult(result: PhrLabResult, decision: PhrReviewDecision): Promise<void> {
     setReviewingId(result.id)
@@ -333,6 +352,7 @@ export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPage
     try {
       const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/lab-results/${result.id}`, decision)
       const updated = PhrLabResultResponseSchema.parse(raw).lab_result
+      recordChanged({ resource: 'lab-results', patientId, recordId: result.id, origin: 'list' })
       if (decision === 'rejected' && !showRejected) {
         setResults((prev) => prev.filter((r) => r.id !== updated.id))
       } else {

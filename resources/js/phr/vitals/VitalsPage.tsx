@@ -2,14 +2,16 @@ import { HeartPulse, Plus } from 'lucide-react'
 import type { ComponentProps, FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
 import { displayUnits } from '@/lib/measureUnits'
+import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { ReviewDot } from '@/phr/clinical/ReviewDot'
 import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
@@ -181,6 +183,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
   useEffect(() => {
     void load()
   }, [load])
+  useRecordChanges('vitals', patientId, 'detail', () => void load())
 
   async function reviewVital(vital: PhrVital, decision: PhrReviewDecision): Promise<void> {
     setReviewingId(vital.id)
@@ -188,6 +191,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
     try {
       const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/vitals/${vital.id}`, decision)
       const updated = PhrVitalResponseSchema.parse(raw).vital
+      recordChanged({ resource: 'vitals', patientId, recordId: vital.id, origin: 'list' })
       if (decision === 'rejected' && !showRejected) {
         setVitals((prev) => prev.filter((v) => v.id !== updated.id))
       } else {
@@ -227,14 +231,26 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
       header: 'Vital',
       headerClassName: head,
       className: 'px-3 py-2 font-medium text-foreground',
-      cell: (v) => v.vital_name ?? '—',
+      cell: (v) => (
+        <div className="flex min-w-0 items-start gap-2 wrap-anywhere">
+          <span className={`shrink-0 pt-1.5 ${RECORD_ONLY_BELOW_WIDE}`}><ReviewDot status={v.review_status} /></span>
+          <div className="min-w-0">
+            <div>{v.vital_name ?? '—'}</div>
+            <div className={`mt-0.5 flex flex-wrap gap-x-2 text-xs font-normal text-muted-foreground ${RECORD_ONLY_BELOW_MEDIUM}`}>
+              <span>{displayValue(v)} {displayUnits(v.unit ?? v.secondary_unit)}</span>
+              <span>{formatDate(vitalDate(v)) || 'No date'}</span>
+            </div>
+          </div>
+        </div>
+      ),
     },
-    { id: 'value', header: 'Value', fit: true, numeric: true, headerClassName: head, className: 'px-3 py-2 font-semibold text-foreground', cell: displayValue },
-    { id: 'unit', header: 'Unit', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => displayUnits(v.unit ?? (v.secondary_unit ?? '—')) },
-    { id: 'site', header: 'Body Site', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.body_site ?? '—' },
-    { id: 'date', header: 'Date', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => formatDate(vitalDate(v)) || '—' },
+    { id: 'value', header: 'Value', showFrom: 'medium', numeric: true, headerClassName: head, className: 'px-3 py-2 font-semibold text-foreground wrap-anywhere', cell: displayValue },
+    { id: 'unit', header: 'Unit', showFrom: 'medium', headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => displayUnits(v.unit ?? (v.secondary_unit ?? '—')) },
+    { id: 'site', header: 'Body Site', showFrom: 'wide', headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.body_site ?? '—' },
+    { id: 'date', header: 'Date', fit: true, showFrom: 'medium', headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => formatDate(vitalDate(v)) || '—' },
     {
       id: 'trend',
+      showFrom: 'wide',
       header: 'Trend',
       fit: true,
       headerClassName: head,
@@ -262,6 +278,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
     },
     {
       id: 'review',
+      showFrom: 'wide',
       header: 'Review',
       showWhenAnyRow: (v) => reviewStatusNeedsAttention(v.review_status),
       fit: true,

@@ -8,7 +8,22 @@ const mockFetch = jest.fn()
 
 beforeEach(() => {
   mockFetch.mockReset()
-  globalThis.fetch = mockFetch as unknown as typeof fetch
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const id = /\/lab-results\/(\d+)$/.exec(String(input))?.[1]
+    if (id) {
+      return Promise.resolve({ ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify({
+        lab_result: {
+          id: Number(id), patient_id: 42, user_id: 7, test_name: null, analyte: 'Synthetic selected result',
+          collection_datetime: null, result_datetime: null, result_status: null, ordering_provider: null,
+          resulting_lab: null, value: null, value_numeric: null, unit: null, range_min: null, range_max: null,
+          range_unit: null, reference_range_text: null, normal_value: null, abnormal_flag: null,
+          message_from_provider: null, result_comment: null, lab_director: null, source: null, notes: null,
+          created_at: null, updated_at: null,
+        }, can_manage: false,
+      }) } as Response)
+    }
+    return mockFetch(input, init) as Promise<Response>
+  }) as typeof fetch
 })
 
 describe('LabPanelDetail', () => {
@@ -92,7 +107,7 @@ describe('LabPanelDetail', () => {
     expect(firstLine).toHaveTextContent('Potassium3.3mmol/L')
     expect(secondLine).toHaveTextContent('3.5–5.1 mmol/L')
     expect(secondLine).toHaveTextContent('L')
-    expect(within(first!).getByText('Not Detected', { selector: 'span.shrink-0' })).not.toHaveClass('tabular-nums')
+    expect(within(first!).getByText('Not Detected', { selector: 'span[data-lab-value]' })).not.toHaveClass('tabular-nums')
 
     const value = within(screen.getByRole('table')).getByText('3.3').closest('td')
     expect(value).toHaveClass('w-[1%]', 'whitespace-nowrap', 'text-right', 'tabular-nums')

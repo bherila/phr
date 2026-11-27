@@ -113,8 +113,9 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
     lines up with the other numbers.
   - The review status sits on the row's line as a dot and a label (beside the review actions,
     or after the name), not as a pill under the name.
-  - **A list changes shape with its own width, and nothing is cut off.** Medications and Fills
-    do this; other sections move over as they are revisited. **(planned)** The list's box is a
+  - **A list changes shape with its own width, and nothing is cut off.** Medications, Fills,
+    Labs, Vitals, Conditions, Allergies, Immunizations, Visits, Procedures, Documents, Imaging
+    and Review use their own container width. **(shipped)** The list's box is a
     size container (`showFrom` on a column), because a detail panel narrows the list without
     changing the window, so a viewport breakpoint would give the wrong answer. Text wraps and
     is never clipped, and the box should not need to scroll sideways. **(shipped)**
@@ -124,6 +125,12 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
     | 960px and up | All columns, with the row's actions at the end |
     | 560–960px | Secondary columns go, and so do the row's actions: they are in the detail |
     | Under 560px | Rows of two lines, name then what matters, that open the record's own page |
+
+    Review keeps its selection checkboxes and Open, Compare or Review action at every width;
+    the source, section and change context move under the proposed record. Other row actions
+    remain available in the record detail, including the selected lab result’s own review
+    (a panel is never approved as a whole), vital trends and review, and document metadata,
+    review and deletion. Sharing and access cards retain their administrative actions.
 
     Whatever a column loses at a width must still be reachable: on a line under the name (the
     `RECORD_ONLY_*` classes), or in the record's detail. Only short values get `fit`: a column
@@ -328,8 +335,10 @@ giving its date, in Edit. **(shipped)**
   **(shipped)**
 - On Fills and the Medications view a table becomes two-line rows that open the record's own page, and
   a pending row is marked by its dot alone, named for a screen reader, so rows stay two lines.
-  Fills' dates collapse to a button that opens them in a sheet, beside the search. **(shipped)** Other sections'
-  tables still scroll inside their own box. **(planned)**
+  Fills' dates collapse to a button that opens them in a sheet, beside the search. **(shipped)**
+  The other clinical lists also adapt to their own width, keeping compact summaries and opening
+  the record's own page for its details and actions. Review keeps its selection and workflow
+  actions directly reachable. **(shipped)**
 - Approve and Reject sit in a full-width bar held at the bottom of the screen on a medication's
   or a fill's page. **(shipped)** Other records keep their inline buttons. **(planned)**
 - Tap targets on those pages are at least 44px: Add, the tabs, the filter sheet, the review
