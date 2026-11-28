@@ -1,5 +1,9 @@
+import { type FormEvent, type ReactElement, type ReactNode, useEffect, useId, useRef, useState } from 'react'
+
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { type FieldErrors, fieldErrorsFrom, focusFirstInvalid } from '@/phr/clinical/fieldErrors'
+import { RecordFormDialog } from '@/phr/clinical/RecordFormDialog'
 import { compactPayload } from '@/phr/shared'
 import {
   type PhrAllergy,
@@ -60,6 +64,7 @@ export const EMPTY_ALLERGY_FORM: PhrAllergyFormData = {
 interface AllergyFormFieldsProps {
   form: PhrAllergyFormData
   onChange: (form: PhrAllergyFormData) => void
+  errors?: FieldErrors<PhrAllergyFormData>
 }
 
 export function allergyFormFromRecord(allergy: PhrAllergy): PhrAllergyFormData {
@@ -91,89 +96,121 @@ export function allergyPayload(form: PhrAllergyFormData): Record<string, unknown
   return compactPayload(form)
 }
 
-export function AllergyFormFields({ form, onChange }: AllergyFormFieldsProps) {
+const FIELD_MESSAGES: FieldErrors<PhrAllergyFormData> = {
+  substance: 'Substances are at most 255 characters.',
+  rxnorm_code: 'RxNorm codes are at most 50 characters.',
+  snomed_code: 'SNOMED codes are at most 50 characters.',
+  reaction: 'Reactions are at most 255 characters.',
+  notes: 'Notes are at most 10000 characters.',
+}
+
+function AllergyField({ id, label, error, wide = false, children }: { id: string, label: string, error?: string | undefined, wide?: boolean, children: ReactNode }): ReactElement {
+  return (
+    <div className={`grid gap-1 ${wide ? 'md:col-span-2' : ''}`}>
+      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      {children}
+      {error && <p id={`${id}-error`} className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+function Select<T extends string>({ id, value, options, onChange }: { id: string, value: T, options: ReadonlyArray<{ value: string, label: string }>, onChange: (value: T) => void }): ReactElement {
+  return (
+    <select id={id} value={value} onChange={(event) => onChange(event.target.value as T)} className={SELECT_CLASS}>
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+  )
+}
+
+export function AllergyFormFields({ form, onChange, errors = {} }: AllergyFormFieldsProps) {
+  const id = useId()
+  const set = <K extends keyof PhrAllergyFormData>(key: K, value: PhrAllergyFormData[K]): void => onChange({ ...form, [key]: value })
+  const invalid = (field: keyof PhrAllergyFormData): { 'aria-invalid'?: true, 'aria-describedby'?: string } => (
+    errors[field] ? { 'aria-invalid': true, 'aria-describedby': `${id}-${field}-error` } : {}
+  )
   return (
     <div className="grid gap-3 md:grid-cols-2">
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Substance *
-        <Input value={form.substance} onChange={(event) => onChange({ ...form, substance: event.target.value })} placeholder="Penicillin" required />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Reaction
-        <Input value={form.reaction} onChange={(event) => onChange({ ...form, reaction: event.target.value })} placeholder="Hives, anaphylaxis" />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Category
-        <select
-          value={form.category}
-          onChange={(event) => onChange({ ...form, category: event.target.value as PhrAllergyFormData['category'] })}
-          className={SELECT_CLASS}
-        >
-          {CATEGORY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Criticality
-        <select
-          value={form.criticality}
-          onChange={(event) => onChange({ ...form, criticality: event.target.value as PhrAllergyFormData['criticality'] })}
-          className={SELECT_CLASS}
-        >
-          {CRITICALITY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Severity
-        <select
-          value={form.severity}
-          onChange={(event) => onChange({ ...form, severity: event.target.value as PhrAllergyFormData['severity'] })}
-          className={SELECT_CLASS}
-        >
-          {SEVERITY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Clinical Status
-        <select
-          value={form.clinical_status}
-          onChange={(event) => onChange({ ...form, clinical_status: event.target.value as PhrAllergyFormData['clinical_status'] })}
-          className={SELECT_CLASS}
-        >
-          {STATUS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        Verification
-        <select
-          value={form.verification_status}
-          onChange={(event) => onChange({ ...form, verification_status: event.target.value as PhrAllergyFormData['verification_status'] })}
-          className={SELECT_CLASS}
-        >
-          {VERIFICATION_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        RxNorm Code
-        <Input value={form.rxnorm_code} onChange={(event) => onChange({ ...form, rxnorm_code: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium">
-        SNOMED Code
-        <Input value={form.snomed_code} onChange={(event) => onChange({ ...form, snomed_code: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium md:col-span-2">
-        Notes
-        <Textarea value={form.notes} onChange={(event) => onChange({ ...form, notes: event.target.value })} />
-      </label>
+      <AllergyField id={`${id}-substance`} label="Substance *" error={errors.substance} wide>
+        <Input id={`${id}-substance`} value={form.substance} maxLength={255} placeholder="Penicillin" onChange={(event) => set('substance', event.target.value)} {...invalid('substance')} />
+      </AllergyField>
+      <AllergyField id={`${id}-reaction`} label="Reaction" error={errors.reaction}>
+        <Input id={`${id}-reaction`} value={form.reaction} maxLength={255} placeholder="Hives, anaphylaxis" onChange={(event) => set('reaction', event.target.value)} {...invalid('reaction')} />
+      </AllergyField>
+      <AllergyField id={`${id}-category`} label="Category">
+        <Select id={`${id}-category`} value={form.category} options={CATEGORY_OPTIONS} onChange={(value) => set('category', value)} />
+      </AllergyField>
+      <AllergyField id={`${id}-criticality`} label="Criticality">
+        <Select id={`${id}-criticality`} value={form.criticality} options={CRITICALITY_OPTIONS} onChange={(value) => set('criticality', value)} />
+      </AllergyField>
+      <AllergyField id={`${id}-severity`} label="Severity">
+        <Select id={`${id}-severity`} value={form.severity} options={SEVERITY_OPTIONS} onChange={(value) => set('severity', value)} />
+      </AllergyField>
+      <AllergyField id={`${id}-clinical_status`} label="Clinical Status">
+        <Select id={`${id}-clinical_status`} value={form.clinical_status} options={STATUS_OPTIONS} onChange={(value) => set('clinical_status', value)} />
+      </AllergyField>
+      <AllergyField id={`${id}-verification_status`} label="Verification">
+        <Select id={`${id}-verification_status`} value={form.verification_status} options={VERIFICATION_OPTIONS} onChange={(value) => set('verification_status', value)} />
+      </AllergyField>
+      <AllergyField id={`${id}-rxnorm_code`} label="RxNorm Code" error={errors.rxnorm_code}>
+        <Input id={`${id}-rxnorm_code`} value={form.rxnorm_code} maxLength={50} onChange={(event) => set('rxnorm_code', event.target.value)} {...invalid('rxnorm_code')} />
+      </AllergyField>
+      <AllergyField id={`${id}-snomed_code`} label="SNOMED Code" error={errors.snomed_code}>
+        <Input id={`${id}-snomed_code`} value={form.snomed_code} maxLength={50} onChange={(event) => set('snomed_code', event.target.value)} {...invalid('snomed_code')} />
+      </AllergyField>
+      <AllergyField id={`${id}-notes`} label="Notes" error={errors.notes} wide>
+        <Textarea id={`${id}-notes`} value={form.notes} maxLength={10000} onChange={(event) => set('notes', event.target.value)} {...invalid('notes')} />
+      </AllergyField>
     </div>
+  )
+}
+
+/**
+ * Adds or edits an allergy over the page, from the list or the allergy's detail, so neither
+ * moves. Problems are shown on their fields, and focus goes to the first one.
+ */
+export function AllergyFormDialog({ allergy, busy, error, onSubmit, onClose }: {
+  allergy: PhrAllergy | null
+  busy: boolean
+  error: string | null
+  /** Saves the parsed form; resolves true once the server stored it. */
+  onSubmit: (form: PhrAllergyFormData) => Promise<boolean>
+  onClose: () => void
+}): ReactElement {
+  const formRef = useRef<HTMLFormElement>(null)
+  const [form, setForm] = useState<PhrAllergyFormData>(() => (allergy ? allergyFormFromRecord(allergy) : EMPTY_ALLERGY_FORM))
+  const [errors, setErrors] = useState<FieldErrors<PhrAllergyFormData>>({})
+
+  useEffect(() => {
+    focusFirstInvalid(formRef.current)
+  }, [errors])
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    const parsed = PhrAllergyFormSchema.safeParse(form)
+    if (!parsed.success) {
+      setErrors(fieldErrorsFrom(parsed.error, {
+        ...FIELD_MESSAGES,
+        ...(!form.substance.trim() ? { substance: 'Enter the substance.' } : {}),
+      }))
+      return
+    }
+    setErrors({})
+    await onSubmit(parsed.data)
+  }
+
+  return (
+    <RecordFormDialog
+      title={allergy ? 'Edit allergy' : 'Add allergy'}
+      description="The substance, the reaction, how serious it is, its status and notes."
+      submitLabel={allergy ? 'Save' : 'Add allergy'}
+      busy={busy}
+      error={error}
+      fieldErrors={errors}
+      onSubmit={(event) => void submit(event)}
+      onClose={onClose}
+      formRef={formRef}
+    >
+      <AllergyFormFields form={form} onChange={setForm} errors={errors} />
+    </RecordFormDialog>
   )
 }

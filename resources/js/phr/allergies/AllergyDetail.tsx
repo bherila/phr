@@ -1,32 +1,26 @@
 import { Pencil, Trash2 } from 'lucide-react'
-import type { FormEvent } from 'react'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { ConfirmDeleteDialog } from '@/phr/clinical/ConfirmDeleteDialog'
 import { RecordReviewBar } from '@/phr/clinical/RecordDetailParts'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
-import { errorMessage, fetchPhrDetail, zodErrorMessage } from '@/phr/shared'
+import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import {
   type PhrAllergy,
   type PhrAllergyFormData,
-  PhrAllergyFormSchema,
   PhrAllergyResponseSchema,
 } from '@/phr/types'
 
 import { notifyAllergyChanged } from './allergyEvents'
-import {
-  AllergyFormFields,
-  allergyFormFromRecord,
-  allergyPayload,
-  EMPTY_ALLERGY_FORM,
-} from './AllergyForm'
+import { AllergyFormDialog, allergyPayload } from './AllergyForm'
 
 interface AllergyDetailProps {
   patientId: number
@@ -40,7 +34,6 @@ function detailValue(value: string | null | undefined, fallback = 'Not recorded'
 
 export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyDetailProps) {
   const endpoint = `/api/phr/patients/${patientId}/allergies/${recordId}`
-  const formId = useId()
   const [allergy, setAllergy] = useState<PhrAllergy | null>(null)
   const [canManage, setCanManage] = useState(false)
   const [notFound, setNotFound] = useState(false)
@@ -49,7 +42,6 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
   const [mutation, setMutation] = useState<'save' | 'delete' | 'review' | null>(null)
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [form, setForm] = useState<PhrAllergyFormData>(EMPTY_ALLERGY_FORM)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -90,38 +82,29 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
   }, [endpoint])
 
   function startEditing(): void {
-    if (!allergy) return
-    setForm(allergyFormFromRecord(allergy))
-    setEditing(true)
     setConfirmingDelete(false)
     setError(null)
+    setEditing(true)
   }
 
   function cancelEditing(): void {
     setEditing(false)
-    setForm(EMPTY_ALLERGY_FORM)
     setError(null)
   }
 
-  async function saveAllergy(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-    const parsed = PhrAllergyFormSchema.safeParse(form)
-    if (!parsed.success) {
-      setError(zodErrorMessage(parsed.error))
-      return
-    }
-
+  async function saveAllergy(form: PhrAllergyFormData): Promise<boolean> {
     setMutation('save')
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(endpoint, allergyPayload(parsed.data))
+      const raw: unknown = await fetchWrapper.patch(endpoint, allergyPayload(form))
       const updated = PhrAllergyResponseSchema.parse(raw).allergy
       setAllergy(updated)
       setEditing(false)
-      setForm(EMPTY_ALLERGY_FORM)
       notifyAllergyChanged({ action: 'updated', allergy: updated, patientId })
+      return true
     } catch (caught) {
       setError(errorMessage(caught))
+      return false
     } finally {
       setMutation(null)
     }
@@ -170,8 +153,8 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      {error && !editing && !confirmingDelete && (
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -194,100 +177,82 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
             </div>
             {canManage && (
               <div className="flex flex-wrap gap-2">
-                {editing ? (
-                  <>
-                    <Button type="submit" form={formId} size="sm" disabled={mutation !== null}>
-                      {mutation === 'save' ? 'Saving...' : 'Save'}
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" disabled={mutation !== null} onClick={cancelEditing}>
-                      Cancel
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button type="button" variant="outline" size="sm" className="max-lg:h-11" disabled={mutation !== null} onClick={startEditing}>
-                      <Pencil className="size-4" />
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      disabled={mutation !== null}
-                      onClick={() => setConfirmingDelete(true)}
-                    >
-                      <Trash2 className="size-4" />
-                      Delete
-                    </Button>
-                  </>
-                )}
+                <Button type="button" variant="outline" size="sm" className="max-lg:h-11" disabled={mutation !== null} onClick={startEditing}>
+                  <Pencil className="size-4" />
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive max-lg:h-11"
+                  disabled={mutation !== null}
+                  onClick={() => { setError(null); setConfirmingDelete(true) }}
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </Button>
               </div>
             )}
           </div>
 
-          {editing ? (
-            <form id={formId} className="mt-4" onSubmit={(event) => void saveAllergy(event)}>
-              <AllergyFormFields form={form} onChange={setForm} />
-            </form>
-          ) : (
-            <>
-              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reaction</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.reaction)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Severity</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.severity)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Criticality</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.criticality)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Category</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.category)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Clinical status</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.clinical_status)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Verification</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.verification_status)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">RxNorm</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.rxnorm_code)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">SNOMED</dt>
-                  <dd className="text-card-foreground">{detailValue(allergy.snomed_code)}</dd>
-                </div>
-              </dl>
-              <div className="mt-4 border-t border-border pt-4">
-                <h3 className="text-sm font-medium text-card-foreground">Notes</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{detailValue(allergy.notes, 'No notes recorded.')}</p>
-              </div>
-            </>
-          )}
-
-          {confirmingDelete && !editing && (
-            <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-              <p className="text-sm text-foreground">
-                Delete <strong>{allergy.substance}</strong>? This cannot be undone.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button type="button" variant="destructive" size="sm" disabled={mutation !== null} onClick={() => void deleteAllergy()}>
-                  {mutation === 'delete' ? 'Deleting...' : 'Delete permanently'}
-                </Button>
-                <Button type="button" variant="outline" size="sm" disabled={mutation !== null} onClick={() => setConfirmingDelete(false)}>
-                  Cancel
-                </Button>
-              </div>
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reaction</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.reaction)}</dd>
             </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Severity</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.severity)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Criticality</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.criticality)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Category</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.category)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Clinical status</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.clinical_status)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Verification</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.verification_status)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">RxNorm</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.rxnorm_code)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">SNOMED</dt>
+              <dd className="text-card-foreground">{detailValue(allergy.snomed_code)}</dd>
+            </div>
+          </dl>
+          <div className="mt-4 border-t border-border pt-4">
+            <h3 className="text-sm font-medium text-card-foreground">Notes</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{detailValue(allergy.notes, 'No notes recorded.')}</p>
+          </div>
+
+          {editing && (
+            <AllergyFormDialog
+              allergy={allergy}
+              busy={mutation === 'save'}
+              error={error}
+              onSubmit={saveAllergy}
+              onClose={cancelEditing}
+            />
           )}
+          <ConfirmDeleteDialog
+            open={confirmingDelete}
+            title="Delete this allergy?"
+            description={<><strong>{allergy.substance}</strong> will be removed from this record. You can't undo this.</>}
+            busy={mutation === 'delete'}
+            error={confirmingDelete ? error : null}
+            onConfirm={() => void deleteAllergy()}
+            onCancel={() => { setError(null); setConfirmingDelete(false) }}
+          />
         </section>
       )}
 

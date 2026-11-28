@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import AllergyDetail from './AllergyDetail'
 
@@ -37,7 +37,7 @@ describe('AllergyDetail', () => {
     jest.restoreAllMocks()
   })
 
-  it('edits fields in place and turns Edit into Save', async () => {
+  it('edits in a dialog over the panel and shows what was saved', async () => {
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => {
       if (options?.method === 'PATCH') {
         return jsonResponse({ allergy: { ...ALLERGY, reaction: 'Updated synthetic reaction' } })
@@ -50,12 +50,13 @@ describe('AllergyDetail', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
 
-    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Reaction'), { target: { value: 'Updated synthetic reaction' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit allergy' })
+    expect(within(dialog).getByLabelText('Substance *')).toHaveValue('Synthetic allergen')
+    fireEvent.change(within(dialog).getByLabelText('Reaction'), { target: { value: 'Updated synthetic reaction' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(screen.getByText('Updated synthetic reaction')).toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
 
     const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH')
@@ -78,13 +79,33 @@ describe('AllergyDetail', () => {
     render(<AllergyDetail patientId={42} recordId="17" onDrill={onDrill} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
-    expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument()
+    const dialog = await screen.findByRole('alertdialog', { name: 'Delete this allergy?' })
+    expect(dialog).toHaveTextContent("Synthetic allergen will be removed from this record. You can't undo this.")
     expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => expect(onDrill).toHaveBeenCalledWith({ id: 'allergies' }))
     expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(true)
+  })
+
+  it('reports a cleared substance on its field without saving', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ allergy: ALLERGY, can_manage: true }))
+    // The spy outlives restoreAllMocks, so start from this test's own calls.
+    fetchMock.mockClear()
+
+    render(<AllergyDetail patientId={42} recordId="17" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit allergy' })
+    fireEvent.change(within(dialog).getByLabelText('Substance *'), { target: { value: '  ' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    const substance = within(dialog).getByLabelText('Substance *')
+    expect(substance).toHaveAttribute('aria-invalid', 'true')
+    expect(substance).toHaveAccessibleDescription('Enter the substance.')
+    await waitFor(() => expect(substance).toHaveFocus())
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
   })
 
   it('does not expose mutation controls to read-only viewers', async () => {

@@ -69,3 +69,43 @@ it('reloads changed procedures so a detail save reaches the combined timeline', 
   expect(screen.queryByText('Single allergy injection')).not.toBeInTheDocument()
   expect(get).toHaveBeenCalledTimes(6)
 })
+
+it('adds a visit in a dialog, leaving the timeline where it is, then opens the new visit', async () => {
+  jest.spyOn(fetchWrapper, 'get').mockImplementation(async (url) => {
+    if (String(url).includes('/office-visits')) return { office_visits: [VISIT], can_manage: true }
+    if (String(url).includes('/procedures')) return { procedures: [], can_manage: true }
+    return { immunizations: [], can_manage: true }
+  })
+  const post = jest.spyOn(fetchWrapper, 'post').mockResolvedValue({ office_visit: { ...VISIT, id: 9, visit_type: 'Telehealth', review_status: 'confirmed' } })
+  const onDrill = jest.fn()
+  render(<OfficeVisitsPage patientId={42} onDrill={onDrill} />)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Add visit' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Add visit' })
+  expect(within(dialog).getByLabelText('Type')).toHaveAttribute('maxLength', '100')
+  fireEvent.change(within(dialog).getByLabelText('Type'), { target: { value: 'Telehealth' } })
+  fireEvent.change(within(dialog).getByLabelText('Chief Complaint'), { target: { value: 'Synthetic cough' } })
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Add visit' })) })
+
+  expect(post).toHaveBeenCalledWith('/api/phr/patients/42/office-visits', expect.objectContaining({ visit_type: 'Telehealth', chief_complaint: 'Synthetic cough', visit_date: null }))
+  expect(onDrill).toHaveBeenCalledWith({ id: 'office-visit-detail', instance: '9' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+it('keeps a refused visit in the dialog with the reason', async () => {
+  jest.spyOn(fetchWrapper, 'get').mockImplementation(async (url) => {
+    if (String(url).includes('/office-visits')) return { office_visits: [], can_manage: true }
+    if (String(url).includes('/procedures')) return { procedures: [], can_manage: true }
+    return { immunizations: [], can_manage: true }
+  })
+  jest.spyOn(fetchWrapper, 'post').mockRejectedValue({ message: 'The visit date field must be a valid date.' })
+  render(<OfficeVisitsPage patientId={42} />)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Add visit' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Add visit' })
+  fireEvent.change(within(dialog).getByLabelText('Provider'), { target: { value: 'Synthetic clinician' } })
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Add visit' })) })
+
+  expect(within(dialog).getByRole('alert')).toHaveTextContent('must be a valid date')
+  expect(within(dialog).getByLabelText('Provider')).toHaveValue('Synthetic clinician')
+})

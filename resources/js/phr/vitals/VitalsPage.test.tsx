@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import VitalsPage from '@/phr/vitals/VitalsPage'
 
@@ -71,5 +71,32 @@ describe('VitalsPage', () => {
     await waitFor(() => {
       expect(onDrill).toHaveBeenCalledWith({ id: 'vitals-trend', instance: 'systolic_bp' })
     })
+  })
+
+  it('adds a reading in a dialog, asking for its name on the field, then opens it', async () => {
+    // The reading beforeEach lists, now for someone who can add one.
+    const listed = await (mockGet() as Promise<{ vitals: Array<Record<string, unknown>> }>)
+    mockGet.mockResolvedValue({ vitals: listed.vitals, can_manage: true })
+    mockPost.mockResolvedValue({ vital: { ...listed.vitals[0], id: 13, vital_name: 'Weight', vital_value: '70', value_numeric: '70', value_numeric_secondary: null, unit: 'kg', secondary_unit: null } })
+    const onDrill = jest.fn()
+
+    render(<VitalsPage patientId={42} onDrill={onDrill} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add vital' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add vital' })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add vital' }))
+    const name = within(dialog).getByLabelText('Vital Name *')
+    expect(name).toHaveAttribute('aria-invalid', 'true')
+    await waitFor(() => expect(name).toHaveFocus())
+    expect(mockPost).not.toHaveBeenCalled()
+
+    fireEvent.change(name, { target: { value: 'Weight' } })
+    fireEvent.change(within(dialog).getByLabelText('Numeric (systolic / primary)'), { target: { value: '70' } })
+    fireEvent.change(within(dialog).getByLabelText('Unit'), { target: { value: 'kg' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add vital' }))
+
+    await waitFor(() => expect(onDrill).toHaveBeenCalledWith({ id: 'vitals-reading-detail', instance: '13' }))
+    expect(mockPost).toHaveBeenCalledWith('/api/phr/patients/42/vitals', expect.objectContaining({ vital_name: 'Weight', value_numeric: 70, unit: 'kg' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
