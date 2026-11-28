@@ -1,15 +1,17 @@
 import { CalendarDays, Plus, ShieldPlus, Stethoscope, Syringe } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 
 import { RecordList } from '@/components/record-list/RecordList'
 import { RECORD_ONLY_BELOW_WIDE } from '@/components/record-list/RecordTable'
 import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { useRecordChanges } from '@/phr/clinical/recordChanges'
+import { RecordFormDialog } from '@/phr/clinical/RecordFormDialog'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import { encounterClassLabel } from '@/phr/office-visits/encounterLabels'
@@ -154,13 +156,18 @@ function eventsFromRecords(
   })
 }
 
-interface AddFormProps {
+interface AddVisitDialogProps {
   patientId: number
   onAdded: (visit: PhrOfficeVisit) => void
+  onClose: () => void
 }
 
-function AddForm({ patientId, onAdded }: AddFormProps) {
-  const [open, setOpen] = useState(false)
+/**
+ * Adds a visit over the page, so the timeline stays where it is. Every field is optional; the
+ * inputs stop at the lengths the server accepts, and a refused save is shown in the dialog.
+ */
+function AddVisitDialog({ patientId, onAdded, onClose }: AddVisitDialogProps) {
+  const id = useId()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visitDate, setVisitDate] = useState('')
@@ -175,16 +182,10 @@ function AddForm({ patientId, onAdded }: AddFormProps) {
     try {
       const raw: unknown = await fetchWrapper.post(
         `/api/phr/patients/${patientId}/office-visits`,
-        compactPayload({ visit_date: visitDate, visit_type: visitType, provider_name: providerName, chief_complaint: chiefComplaint }),
+        compactPayload({ visit_date: visitDate, visit_type: visitType.trim(), provider_name: providerName.trim(), chief_complaint: chiefComplaint.trim() }),
       )
-      const visit = (raw as { office_visit: PhrOfficeVisit }).office_visit
-      onAdded(visit)
       void reviewStateChanged(patientId)
-      setVisitDate('')
-      setVisitType('')
-      setProviderName('')
-      setChiefComplaint('')
-      setOpen(false)
+      onAdded((raw as { office_visit: PhrOfficeVisit }).office_visit)
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -192,30 +193,35 @@ function AddForm({ patientId, onAdded }: AddFormProps) {
     }
   }
 
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Add Visit
-      </Button>
-    )
-  }
-
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="mb-3 text-sm font-semibold">Add Office Visit</h3>
-      <form onSubmit={(event) => void handleSubmit(event)} className="grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-sm font-medium">Date <Input type="date" value={visitDate} onChange={(event) => setVisitDate(event.target.value)} /></label>
-        <label className="grid gap-1 text-sm font-medium">Type <Input value={visitType} onChange={(event) => setVisitType(event.target.value)} placeholder="Office, Telehealth…" /></label>
-        <label className="grid gap-1 text-sm font-medium">Provider <Input value={providerName} onChange={(event) => setProviderName(event.target.value)} /></label>
-        <label className="grid gap-1 text-sm font-medium sm:col-span-2">Chief Complaint <Input value={chiefComplaint} onChange={(event) => setChiefComplaint(event.target.value)} /></label>
-        {error && <p className="text-sm text-destructive sm:col-span-2">{error}</p>}
-        <div className="flex gap-2 sm:col-span-2">
-          <Button type="submit" size="sm" disabled={busy}>{busy ? 'Adding…' : 'Add'}</Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+    <RecordFormDialog
+      title="Add visit"
+      description="When the visit was, what kind, the provider and the chief complaint."
+      submitLabel="Add visit"
+      busy={busy}
+      error={error}
+      onSubmit={(event) => void handleSubmit(event)}
+      onClose={onClose}
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-1">
+          <label htmlFor={`${id}-date`} className="text-sm font-medium">Date</label>
+          <Input id={`${id}-date`} type="date" value={visitDate} onChange={(event) => setVisitDate(event.target.value)} />
         </div>
-      </form>
-    </div>
+        <div className="grid gap-1">
+          <label htmlFor={`${id}-type`} className="text-sm font-medium">Type</label>
+          <Input id={`${id}-type`} value={visitType} maxLength={100} placeholder="Office, Telehealth…" onChange={(event) => setVisitType(event.target.value)} />
+        </div>
+        <div className="grid gap-1 sm:col-span-2">
+          <label htmlFor={`${id}-provider`} className="text-sm font-medium">Provider</label>
+          <Input id={`${id}-provider`} value={providerName} maxLength={255} onChange={(event) => setProviderName(event.target.value)} />
+        </div>
+        <div className="grid gap-1 sm:col-span-2">
+          <label htmlFor={`${id}-complaint`} className="text-sm font-medium">Chief Complaint</label>
+          <Textarea id={`${id}-complaint`} value={chiefComplaint} maxLength={10000} onChange={(event) => setChiefComplaint(event.target.value)} />
+        </div>
+      </div>
+    </RecordFormDialog>
   )
 }
 
@@ -229,6 +235,7 @@ export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: Phr
   const [showRejected, setShowRejected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -285,7 +292,12 @@ export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: Phr
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">A chronological view of care encounters.</p>
         </div>
-        {canManage && <AddForm patientId={patientId} onAdded={(visit) => setVisits((current) => [visit, ...current])} />}
+        {canManage && (
+          <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add visit
+          </Button>
+        )}
       </div>
       <EhiPendingBanner patientId={patientId} mapping="encounter" className="mb-4" />
 
@@ -363,6 +375,18 @@ export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: Phr
           }}
         />
       </>
+      {adding && (
+        <AddVisitDialog
+          patientId={patientId}
+          onClose={() => setAdding(false)}
+          onAdded={(visit) => {
+            setVisits((current) => [visit, ...current])
+            setAdding(false)
+            // A new visit opens, so its detail shows what was saved.
+            onDrill?.({ id: 'office-visit-detail', instance: String(visit.id) })
+          }}
+        />
+      )}
     </div>
   )
 }

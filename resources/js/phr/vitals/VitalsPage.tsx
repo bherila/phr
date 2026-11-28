@@ -1,6 +1,6 @@
 import { HeartPulse, Plus } from 'lucide-react'
 import type { ComponentProps, FormEvent } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,9 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
 import { displayUnits } from '@/lib/measureUnits'
+import { type FieldErrors, fieldErrorsFrom, focusFirstInvalid } from '@/phr/clinical/fieldErrors'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
+import { RecordFormDialog } from '@/phr/clinical/RecordFormDialog'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { ReviewDot } from '@/phr/clinical/ReviewDot'
@@ -27,20 +29,6 @@ import {
 } from '@/phr/types'
 import { metricCandidates } from '@/phr/vitals/metrics'
 
-interface LabeledInputProps extends Omit<ComponentProps<typeof Input>, 'onChange'> {
-  label: string
-  onChange: (value: string) => void
-}
-
-function LabeledInput({ label, onChange, ...props }: LabeledInputProps) {
-  return (
-    <label className="grid gap-1 text-sm font-medium text-foreground">
-      {label}
-      <Input {...props} onChange={(e) => onChange(e.target.value)} />
-    </label>
-  )
-}
-
 const emptyForm: PhrVitalFormData = {
   vital_name: '',
   vital_date: '',
@@ -54,35 +42,69 @@ const emptyForm: PhrVitalFormData = {
   notes: '',
 }
 
-interface AddVitalFormProps {
-  patientId: number
-  onAdded: (vital: PhrVital) => void
+/** The form's own words for what Zod would otherwise report in its own. */
+const FIELD_MESSAGES: FieldErrors<PhrVitalFormData> = {
+  vital_name: 'Vital names are at most 255 characters.',
+  vital_value: 'Values are at most 255 characters.',
+  unit: 'Units are at most 50 characters.',
+  body_site: 'Body sites are at most 100 characters.',
 }
 
-function AddVitalForm({ patientId, onAdded }: AddVitalFormProps) {
+type VitalTextField = 'vital_name' | 'vital_date' | 'observed_at' | 'vital_value' | 'value_numeric' | 'value_numeric_secondary' | 'unit' | 'body_site'
+
+const VITAL_FIELDS: ReadonlyArray<{ field: VitalTextField, label: string, props?: ComponentProps<typeof Input> }> = [
+  { field: 'vital_name', label: 'Vital Name *', props: { maxLength: 255 } },
+  { field: 'vital_date', label: 'Date', props: { type: 'date' } },
+  { field: 'observed_at', label: 'Observed At', props: { type: 'datetime-local' } },
+  { field: 'vital_value', label: 'Value', props: { maxLength: 255 } },
+  { field: 'value_numeric', label: 'Numeric (systolic / primary)', props: { inputMode: 'decimal' } },
+  { field: 'value_numeric_secondary', label: 'Secondary numeric (diastolic)', props: { inputMode: 'decimal' } },
+  { field: 'unit', label: 'Unit', props: { maxLength: 50 } },
+  { field: 'body_site', label: 'Body Site', props: { maxLength: 100 } },
+]
+
+interface AddVitalDialogProps {
+  patientId: number
+  onAdded: (vital: PhrVital) => void
+  onClose: () => void
+}
+
+/**
+ * Adds a reading over the page, so the list and its trends stay where they are. Problems are
+ * shown on their fields, with focus on the first; a refused save is shown in the dialog.
+ */
+function AddVitalDialog({ patientId, onAdded, onClose }: AddVitalDialogProps) {
+  const id = useId()
+  const formRef = useRef<HTMLFormElement>(null)
   const [form, setForm] = useState<PhrVitalFormData>(emptyForm)
+  const [errors, setErrors] = useState<FieldErrors<PhrVitalFormData>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    focusFirstInvalid(formRef.current)
+  }, [errors])
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
     setError(null)
     const parsed = PhrVitalFormSchema.safeParse(form)
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Invalid input.')
+      setErrors(fieldErrorsFrom(parsed.error, {
+        ...FIELD_MESSAGES,
+        ...(!form.vital_name.trim() ? { vital_name: "Enter the vital's name, like Weight or Blood Pressure." } : {}),
+      }))
       return
     }
+    setErrors({})
     setBusy(true)
     try {
       const raw: unknown = await fetchWrapper.post(
         `/api/phr/patients/${patientId}/vitals`,
         numericPayload(parsed.data, ['value_numeric', 'value_numeric_secondary']),
       )
-      onAdded(PhrVitalResponseSchema.parse(raw).vital)
       void reviewStateChanged(patientId)
-      setForm(emptyForm)
-      setOpen(false)
+      onAdded(PhrVitalResponseSchema.parse(raw).vital)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -90,40 +112,38 @@ function AddVitalForm({ patientId, onAdded }: AddVitalFormProps) {
     }
   }
 
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Add Vital
-      </Button>
-    )
-  }
-
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="mb-3 text-sm font-semibold text-card-foreground">Add Vital</h3>
-      <form onSubmit={(e) => void handleSubmit(e)}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <LabeledInput label="Vital Name *" value={form.vital_name} onChange={(v) => setForm({ ...form, vital_name: v })} required />
-          <LabeledInput label="Date" type="date" value={form.vital_date ?? ''} onChange={(v) => setForm({ ...form, vital_date: v })} />
-          <LabeledInput label="Observed At" type="datetime-local" value={form.observed_at ?? ''} onChange={(v) => setForm({ ...form, observed_at: v })} />
-          <LabeledInput label="Value" value={form.vital_value ?? ''} onChange={(v) => setForm({ ...form, vital_value: v })} />
-          <LabeledInput label="Numeric (systolic / primary)" inputMode="decimal" value={form.value_numeric ?? ''} onChange={(v) => setForm({ ...form, value_numeric: v })} />
-          <LabeledInput label="Secondary numeric (diastolic)" inputMode="decimal" value={form.value_numeric_secondary ?? ''} onChange={(v) => setForm({ ...form, value_numeric_secondary: v })} />
-          <LabeledInput label="Unit" value={form.unit ?? ''} onChange={(v) => setForm({ ...form, unit: v })} />
-          <LabeledInput label="Body Site" value={form.body_site ?? ''} onChange={(v) => setForm({ ...form, body_site: v })} />
-        </div>
-        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
-        <div className="mt-4 flex gap-2">
-          <Button type="submit" size="sm" disabled={busy}>
-            {busy ? 'Adding…' : 'Add'}
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)} disabled={busy}>
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </div>
+    <RecordFormDialog
+      title="Add vital"
+      description="The vital's name, when it was taken, its value and unit."
+      submitLabel="Add vital"
+      busy={busy}
+      error={error}
+      fieldErrors={errors}
+      onSubmit={(event) => void handleSubmit(event)}
+      onClose={onClose}
+      formRef={formRef}
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        {VITAL_FIELDS.map(({ field, label, props }) => {
+          const inputId = `${id}-${field}`
+          const message = errors[field]
+          return (
+            <div key={field} className="grid gap-1">
+              <label htmlFor={inputId} className="text-sm font-medium text-foreground">{label}</label>
+              <Input
+                {...props}
+                id={inputId}
+                value={form[field] ?? ''}
+                onChange={(event) => setForm({ ...form, [field]: event.target.value })}
+                {...(message ? { 'aria-invalid': true, 'aria-describedby': `${inputId}-error` } : {})}
+              />
+              {message && <p id={`${inputId}-error`} className="text-xs text-destructive">{message}</p>}
+            </div>
+          )
+        })}
+      </div>
+    </RecordFormDialog>
   )
 }
 
@@ -160,6 +180,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
   const [showRejected, setShowRejected] = useState(false)
   const [reviewingId, setReviewingId] = useState<number | null>(null)
+  const [adding, setAdding] = useState(false)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -327,8 +348,23 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
 
       {canManage && (
         <div className="mb-6">
-          <AddVitalForm patientId={patientId} onAdded={(v) => setVitals((prev) => [v, ...prev])} />
+          <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add vital
+          </Button>
         </div>
+      )}
+      {adding && (
+        <AddVitalDialog
+          patientId={patientId}
+          onClose={() => setAdding(false)}
+          onAdded={(v) => {
+            setVitals((prev) => [v, ...prev])
+            setAdding(false)
+            // A new reading opens, so its detail shows what was saved.
+            onDrill?.({ id: 'vitals-reading-detail', instance: String(v.id) })
+          }}
+        />
       )}
 
       <div className="mb-4 flex flex-wrap gap-3">

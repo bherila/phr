@@ -1,5 +1,4 @@
 import { AlertTriangle, ChevronDown, ChevronRight, Info, Plus } from 'lucide-react'
-import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_WIDE_BLOCK, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
@@ -10,20 +9,18 @@ import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { ReviewDot } from '@/phr/clinical/ReviewDot'
 import { codeChip, labelize, statusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
-import { zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   PhrAllergiesResponseSchema,
   type PhrAllergy,
   type PhrAllergyFormData,
-  PhrAllergyFormSchema,
   PhrAllergyResponseSchema,
 } from '@/phr/types'
 
 import { subscribeToAllergyChanges } from './allergyEvents'
 import {
-  AllergyFormFields,
+  AllergyFormDialog,
   allergyFormFromRecord,
   allergyPayload,
   EMPTY_ALLERGY_FORM,
@@ -39,11 +36,6 @@ const STATUS_TONE: Record<string, StatusTone> = {
   active: 'danger',
   inactive: 'neutral',
   resolved: 'success',
-}
-
-interface AddFormProps {
-  busy: boolean
-  onSubmit: (form: PhrAllergyFormData) => Promise<boolean>
 }
 
 interface AllergiesTableProps {
@@ -90,42 +82,6 @@ function allergyRiskOrder(allergy: PhrAllergy): number {
 
 function isHighRisk(allergy: PhrAllergy): boolean {
   return allergy.criticality === 'high' || allergy.severity === 'severe'
-}
-
-function AddForm({ busy, onSubmit }: AddFormProps) {
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState<PhrAllergyFormData>(EMPTY_ALLERGY_FORM)
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-    const added = await onSubmit(form)
-    if (added) {
-      setForm(EMPTY_ALLERGY_FORM)
-      setOpen(false)
-    }
-  }
-
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Add Allergy
-      </Button>
-    )
-  }
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 text-sm font-semibold text-card-foreground">Add Allergy</h2>
-      <form onSubmit={(event) => void handleSubmit(event)} className="space-y-3">
-        <AllergyFormFields form={form} onChange={setForm} />
-        <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={busy}>{busy ? 'Adding...' : 'Add'}</Button>
-          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
-        </div>
-      </form>
-    </div>
-  )
 }
 
 function AllergiesTable({
@@ -229,6 +185,7 @@ function AllergiesTable({
 export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const openRowId = openRecordId(openRecord, 'allergy-detail')
   const [historicalOpen, setHistoricalOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
   const endpoint = `/api/phr/patients/${patientId}/allergies`
   const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrAllergy, PhrAllergyFormData>({
@@ -279,14 +236,23 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
     [crud.records],
   )
 
-  async function addAllergy(form: PhrAllergyFormData): Promise<boolean> {
-    const parsed = PhrAllergyFormSchema.safeParse(form)
-    if (!parsed.success) {
-      crud.setError(zodErrorMessage(parsed.error))
-      return false
-    }
+  function openAdd(): void {
+    crud.setError(null)
+    setAdding(true)
+  }
 
-    return (await crud.addRecord(parsed.data)) !== null
+  function closeAdd(): void {
+    crud.setError(null)
+    setAdding(false)
+  }
+
+  async function addAllergy(form: PhrAllergyFormData): Promise<boolean> {
+    const added = await crud.addRecord(form)
+    if (!added) return false
+    closeAdd()
+    // A new allergy opens, so its detail shows what was saved.
+    onDrill?.({ id: 'allergy-detail', instance: String(added.id) })
+    return true
   }
 
   return (
@@ -302,8 +268,8 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
         <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
       </div>
 
-      {crud.error && (
-        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      {crud.error && !adding && (
+        <div role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {crud.error}
         </div>
       )}
@@ -311,7 +277,10 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
       {crud.canManage && (
         <div className="mb-6 grid gap-3">
           <div className="flex flex-wrap items-start gap-2">
-            <AddForm busy={crud.isMutating('add')} onSubmit={addAllergy} />
+            <Button type="button" size="sm" variant="outline" onClick={openAdd}>
+              <Plus className="size-4" aria-hidden="true" />
+              Add allergy
+            </Button>
           </div>
           <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
             <Info className="mt-0.5 size-4 shrink-0" />
@@ -370,6 +339,9 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
             </section>
           )}
         </div>
+      )}
+      {adding && (
+        <AllergyFormDialog allergy={null} busy={crud.isMutating('add')} error={crud.error} onSubmit={addAllergy} onClose={closeAdd} />
       )}
     </div>
   )

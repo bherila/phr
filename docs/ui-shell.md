@@ -149,8 +149,9 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
     refused save is shown inside the dialog, which keeps what was typed. A new record opens in
     the detail once saved. Delete asks in a dialog (`ConfirmDeleteDialog`) that names the record
     and stays open with the reason if the delete is refused. Conditions, Immunizations,
-    Medications and Fills work this way. **(shipped)** Allergies, Vitals, Visits and Procedures
-    still add or edit in place. **(planned)**
+    Medications, Fills, Allergies, Vitals (adding a reading) and Visits (adding a visit) work
+    this way; a visit's own fields have no edit in PHR, and its linked records already attach
+    in a dialog. **(shipped)** Procedures still adds and edits in place. **(planned)**
 - **Loading.** Nothing moves when data arrives. **(shipped)**
   - On the first load a record list renders skeleton rows in its real columns and row classes
     (8, or the expected count), with `aria-busy="true"` on the region, one visually hidden live
